@@ -1,11 +1,12 @@
 "use client";
 
-import { ArrowUpRight, MapPin, Navigation, Share2 } from "lucide-react";
+import { ArrowUpRight, BookOpen, CalendarDays, MapPin, Music2, Navigation, Palette, Share2, Sprout, Trophy, Utensils, Users } from "lucide-react";
 import type { CampusEvent } from "@/lib/events";
 import { eventStatus, formatEventTime } from "@/lib/chicago-date";
 
 export function EventCard({ event, date, expanded, onSelect, onShare }: { event: CampusEvent; date: string; expanded: boolean; onSelect: () => void; onShare: () => void }) {
   const status = eventStatus(event.startsAt, event.endsAt, date);
+  const CategoryIcon = ({ music: Music2, food: Utensils, arts: Palette, sports: Trophy, talks: BookOpen, outdoors: Sprout, community: Users, other: CalendarDays } as const)[event.category];
   const directionUrl = event.coordinates ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${event.coordinates[1]},${event.coordinates[0]}`)}` : null;
   return <article className={`event-card ${expanded ? "is-expanded" : ""}`} id={`event-${event.officialId}`}>
     <button className="event-card-main" onClick={onSelect} aria-expanded={expanded}>
@@ -13,7 +14,7 @@ export function EventCard({ event, date, expanded, onSelect, onShare }: { event:
       <span className="event-title">{event.title}</span>
       {event.subtitle && <span className="event-subtitle">{event.subtitle}</span>}
       <span className="event-location"><MapPin size={14} aria-hidden="true" /> {event.venueName || event.locationLabel}</span>
-      <span className="event-footer"><span className={`category-badge category-${event.category}`}>{event.category === "other" ? "Event" : event.category}</span>{status === "now" && <span className="live-badge">Happening now</span>}{event.priceLabel && <span className="price-label">{event.priceLabel}</span>}</span>
+      <span className="event-footer"><span className={`category-badge category-${event.category}`}><CategoryIcon size={12} aria-hidden="true" />{event.category === "other" ? "Event" : event.category}</span>{status === "now" && <span className="live-badge">Happening now</span>}{event.priceLabel && <span className="price-label">{event.priceLabel}</span>}</span>
     </button>
     {expanded && <div className="event-detail">
       {event.description && <p>{event.description}</p>}

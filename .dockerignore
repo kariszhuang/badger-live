@@ -3,5 +3,7 @@ node_modules
 .git
 .vercel
 coverage
-playwright-report
 test-results
+playwright-report
+*.tsbuildinfo
+npm-debug.log*

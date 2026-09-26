@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const categories = ["all", "music", "arts", "sports", "talks", "outdoors", "community"] as const;
+export const categories = ["all", "music", "food", "arts", "sports", "talks", "outdoors", "community"] as const;
 export type FilterCategory = (typeof categories)[number];
 export type EventCategory = Exclude<FilterCategory, "all"> | "other";
 
@@ -47,11 +47,12 @@ const rawEvent = z.object({
 
 const tagCategory: Record<string, EventCategory> = {
   music: "music", concert: "music", concerts: "music", jazz: "music", recital: "music",
+  food: "food", dining: "food", meal: "food", cooking: "food", culinary: "food",
   art: "arts", arts: "arts", dance: "arts", film: "arts", theatre: "arts", theater: "arts", museum: "arts", exhibition: "arts", visual: "arts",
   athletics: "sports", sports: "sports", recreation: "sports", fitness: "sports",
   lecture: "talks", lectures: "talks", seminar: "talks", research: "talks", science: "talks", academic: "talks", workshop: "talks",
   nature: "outdoors", environment: "outdoors", outdoors: "outdoors", sustainability: "outdoors", gardening: "outdoors", birding: "outdoors",
-  community: "community", volunteerism: "community", social: "community", diversity: "community", student: "community", food: "community",
+  community: "community", volunteerism: "community", social: "community", diversity: "community", student: "community",
 };
 
 export function parseLatLon(input: unknown): [number, number] | null {

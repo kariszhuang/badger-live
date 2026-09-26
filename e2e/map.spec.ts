@@ -75,6 +75,55 @@ test("tapping a venue does not move unrelated map markers", async ({ page }) => 
   expect(Math.abs(after!.y - before!.y)).toBeLessThan(3);
 });
 
+test("event markers stay centered on their venue coordinates while zooming", async ({ page }) => {
+  let vectorTiles = 0;
+  page.on("response", (response) => { if (new URL(response.url()).pathname.endsWith(".pbf") && response.status() === 200) vectorTiles++; });
+  await page.goto("/?date=2026-09-26");
+  await expect.poll(() => vectorTiles, { timeout: 15000 }).toBeGreaterThan(0);
+  const marker = page.getByRole("button", { name: /events at Memorial Union/i }).first();
+  await expect(marker).toHaveClass(/maplibregl-marker-anchor-center/);
+
+  const readMarker = () => marker.evaluate((element) => {
+    const transform = new DOMMatrixReadOnly(getComputedStyle(element).transform);
+    return {
+      groupId: (element as HTMLButtonElement).dataset.groupId,
+      longitude: (element as HTMLButtonElement).dataset.longitude,
+      latitude: (element as HTMLButtonElement).dataset.latitude,
+      screenX: transform.e,
+      screenY: transform.f,
+      scaleX: transform.a,
+      scaleY: transform.d,
+      transform: element.style.transform,
+    };
+  });
+
+  const canvas = await page.locator(".maplibregl-canvas").boundingBox();
+  expect(canvas).not.toBeNull();
+  await page.mouse.move(canvas!.x + canvas!.width * 0.6, canvas!.y + canvas!.height * 0.58);
+  await page.waitForTimeout(500);
+  const original = await readMarker();
+
+  await page.mouse.wheel(0, -500);
+  await expect.poll(async () => (await readMarker()).transform, { timeout: 5000 }).not.toBe(original.transform);
+  await page.waitForTimeout(500);
+  const zoomedIn = await readMarker();
+  await page.mouse.wheel(0, 650);
+  await expect.poll(async () => (await readMarker()).transform, { timeout: 5000 }).not.toBe(zoomedIn.transform);
+  await page.waitForTimeout(500);
+  const zoomedOut = await readMarker();
+
+  for (const position of [original, zoomedIn, zoomedOut]) {
+    expect(position.groupId).toBe(original.groupId);
+    expect(position.longitude).toBe(original.longitude);
+    expect(position.latitude).toBe(original.latitude);
+    expect(position.scaleX).toBeCloseTo(1, 4);
+    expect(position.scaleY).toBeCloseTo(1, 4);
+    expect(position.transform).toContain("translate(-50%, -50%)");
+  }
+  expect(zoomedIn.transform).not.toBe(original.transform);
+  expect(zoomedOut.transform).not.toBe(zoomedIn.transform);
+});
+
 test("location access shows a private on-map position only after interaction", async ({ page, context }) => {
   await context.grantPermissions(["geolocation"]);
   await context.setGeolocation({ latitude: 43.075, longitude: -89.405 });
@@ -82,4 +131,17 @@ test("location access shows a private on-map position only after interaction", a
   await expect(page.getByRole("img", { name: "Your current location" })).toHaveCount(0);
   await page.getByRole("button", { name: "Locate me" }).click();
   await expect(page.getByRole("img", { name: "Your current location" })).toBeVisible();
+});
+
+test("the angled campus view toggles cleanly back to 2D and landmarks can be focused", async ({ page }, testInfo) => {
+  await page.goto("/?date=2026-09-26");
+  const angledView = page.getByRole("button", { name: "Switch to angled 3D view" });
+  await angledView.click();
+  const flatView = page.getByRole("button", { name: "Switch to 2D view" });
+  await expect(flatView).toHaveAttribute("aria-pressed", "true");
+  await flatView.click();
+  await expect(page.getByRole("button", { name: "Switch to angled 3D view" })).toHaveAttribute("aria-pressed", "false");
+  const campRandall = page.getByRole("button", { name: "Show Camp Randall on the map" });
+  if (testInfo.project.name === "mobile") await expect(campRandall).toHaveCount(1);
+  else await campRandall.click();
 });

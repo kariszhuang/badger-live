@@ -13,3 +13,43 @@
 .venue-marker{width:39px;height:39px;border-radius:50%;transform:none;font-size:17px}.venue-marker:hover,.venue-marker.is-selected{transform:scale(1.12)}
 @media(max-width:767px){.add-button{left:15px;right:auto;bottom:calc(24% + env(safe-area-inset-bottom))}}
 .user-location-marker{width:19px;height:19px;border-radius:50%;background:#2276e9;border:3px solid #fff;box-shadow:0 0 0 7px #2276e944,0 3px 12px #15478477}
+.category-food{background:#fff2d7;color:#875313}
+.venue-marker{--marker-color:#c5050c;width:42px;height:42px;position:relative;isolation:isolate;border:3px solid #fff;border-radius:50%;background:var(--marker-color);color:#fff;box-shadow:0 4px 13px #252a2540;display:grid;place-items:center;font-size:12px;transition:transform .2s,box-shadow .2s,background .2s;transform:none}
+.venue-marker svg{width:19px;height:19px;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;fill:none}
+.venue-marker.category-music{--marker-color:#7650aa;background:var(--marker-color);color:#fff}
+.venue-marker.category-food{--marker-color:#c68627;background:var(--marker-color);color:#fff}
+.venue-marker.category-arts{--marker-color:#9856a8;background:var(--marker-color);color:#fff}
+.venue-marker.category-sports{--marker-color:#b53d35;background:var(--marker-color);color:#fff}
+.venue-marker.category-talks{--marker-color:#3d6f9c;background:var(--marker-color);color:#fff}
+.venue-marker.category-outdoors{--marker-color:#358478;background:var(--marker-color);color:#fff}
+.venue-marker.category-community{--marker-color:#4d8656;background:var(--marker-color);color:#fff}
+.venue-marker.category-other{--marker-color:#59665d;background:var(--marker-color);color:#fff}
+.venue-marker-count{position:absolute;top:-6px;right:-7px;min-width:19px;height:19px;padding:0 4px;border:2px solid white;border-radius:999px;background:#272d29;color:#fff;font-size:9px;font-weight:850;line-height:15px;text-align:center;z-index:2}
+.venue-marker:hover,.venue-marker.is-selected{z-index:3;transform:scale(1.12);box-shadow:0 0 0 5px color-mix(in srgb,var(--marker-color) 22%,transparent),0 7px 18px #252a254b}
+.venue-marker.is-selected{animation:marker-select .38s cubic-bezier(.18,.8,.28,1.25)}
+.venue-marker.is-live::after{content:"";position:absolute;inset:-5px;border:2px solid color-mix(in srgb,var(--marker-color) 75%,white);border-radius:50%;pointer-events:none;animation:live-marker-ring 2.2s ease-out infinite}
+@keyframes marker-select{0%{transform:scale(.9)}65%{transform:scale(1.2)}100%{transform:scale(1.12)}}
+@keyframes live-marker-ring{0%{opacity:.75;transform:scale(.86)}100%{opacity:0;transform:scale(1.4)}}
+.event-footer .category-badge{display:inline-flex;align-items:center;gap:5px}
+.event-footer .category-food{background:#fff2d7;color:#875313}
+.map-tools button[aria-pressed="true"]{color:var(--red);border-color:#ecc6c6;background:#fff8f8}
+.landmark-marker{display:flex;align-items:center;gap:6px;padding:4px 9px 4px 4px;border:1px solid #e7e1d5;border-radius:999px;background:#fffdf9;color:#48584c;box-shadow:0 3px 10px #24332624;font-size:9px;font-weight:800;letter-spacing:.015em;white-space:nowrap;transition:transform .16s,box-shadow .16s,border-color .16s}
+.landmark-marker:hover,.landmark-marker:focus-visible{transform:translateY(-2px);border-color:#b8cbb5;box-shadow:0 6px 14px #24332636}
+.landmark-symbol{width:22px;height:22px;display:grid;place-items:center;border-radius:50%;background:#e6eee1;color:#496b4c;font-size:12px;font-weight:900}
+.landmark-capitol .landmark-symbol{background:#f4e8d8;color:#9b6739}
+.landmark-stadium .landmark-symbol{background:#f6e5e4;color:#a43e37}
+.landmark-name{max-width:138px;overflow:hidden;text-overflow:ellipsis}
+@media(max-width:767px){.landmark-marker{gap:4px;padding:3px 7px 3px 3px;font-size:8px}.landmark-symbol{width:20px;height:20px}.landmark-name{max-width:120px}}
+@media(prefers-reduced-motion:reduce){.venue-marker.is-live::after{animation:none;opacity:.55}.venue-marker.is-selected{animation:none}}
+.venue-marker-anchor{appearance:none;width:48px;height:48px;padding:0;border:0;background:transparent;color:inherit;display:grid;place-items:center;position:relative}
+.venue-marker-anchor:focus-visible{outline:3px solid #fe7a80;outline-offset:1px;border-radius:50%}
+.venue-marker-anchor.is-selected{z-index:3}
+.venue-marker-anchor .venue-marker{width:42px;height:42px;transform:none;transition:transform .18s,box-shadow .18s,background .18s}
+.venue-marker-anchor:hover .venue-marker,.venue-marker-anchor:focus-visible .venue-marker,.venue-marker-anchor.is-selected .venue-marker{transform:scale(1.1);box-shadow:0 0 0 5px color-mix(in srgb,var(--marker-color) 22%,transparent),0 7px 18px #252a254b}
+.venue-marker-anchor.is-selected .venue-marker{animation:marker-select .38s cubic-bezier(.18,.8,.28,1.25)}
+.venue-marker-anchor.is-live .venue-marker::after{content:"";position:absolute;inset:-5px;border:2px solid color-mix(in srgb,var(--marker-color) 75%,white);border-radius:50%;pointer-events:none;animation:live-marker-ring 2.2s ease-out infinite}
+.landmark-marker{appearance:none;width:max-content;height:auto;padding:0;border:0;background:transparent;box-shadow:none;display:grid;place-items:center;transition:none}
+.landmark-content{display:flex;align-items:center;gap:6px;padding:4px 9px 4px 4px;border:1px solid #e7e1d5;border-radius:999px;background:#fffdf9;color:#48584c;box-shadow:0 3px 10px #24332624;font-size:9px;font-weight:800;letter-spacing:.015em;white-space:nowrap;transition:transform .16s,box-shadow .16s,border-color .16s}
+.landmark-marker:hover .landmark-content,.landmark-marker:focus-visible .landmark-content{transform:translateY(-2px);border-color:#b8cbb5;box-shadow:0 6px 14px #24332636}
+@media(max-width:767px){.landmark-content{gap:4px;padding:3px 7px 3px 3px;font-size:8px}}
+@media(prefers-reduced-motion:reduce){.venue-marker-anchor.is-live .venue-marker::after{animation:none;opacity:.55}.venue-marker-anchor.is-selected .venue-marker{animation:none}}

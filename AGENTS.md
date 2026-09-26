@@ -1,9 +1,6 @@
-<!-- BEGIN:nextjs-agent-rules -->
+# Badger Live
 
-# This is NOT the Next.js you know
-
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
-
-This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
-
-<!-- END:nextjs-agent-rules -->
+- Use Bun and keep `bun.lock` in sync; do not add npm lockfiles.
+- Keep changes focused and follow the existing TypeScript and Next.js conventions.
+- Run `bun run lint`, `bun run typecheck`, `bun run test`, and `bun run build` before committing.
+- Use Conventional Commits: `<type>[optional scope]: <description>`. See https://www.conventionalcommits.org/en/v1.0.0/.

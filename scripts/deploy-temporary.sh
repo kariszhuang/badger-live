@@ -15,4 +15,4 @@ mv .env.local "$backup"
 restore_env() { mv "$backup" .env.local; }
 trap restore_env EXIT
 
-npx --yes vercel deploy --temporary --yes --build-env "NEXT_PUBLIC_MAPTILER_KEY=$NEXT_PUBLIC_MAPTILER_KEY" --logs
+bunx --yes vercel deploy --temporary --yes --build-env "NEXT_PUBLIC_MAPTILER_KEY=$NEXT_PUBLIC_MAPTILER_KEY" --logs

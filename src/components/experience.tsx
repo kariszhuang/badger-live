@@ -2,9 +2,9 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, CalendarDays, Check, Compass, LocateFixed, MapPinned, Plus, Search, Share2, Sparkles, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, Check, Compass, Layers, LocateFixed, MapPinned, Plus, Search, Share2, Sparkles, X } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
-import { chicagoDate, formatDay, isValidDate, shiftDate } from "@/lib/chicago-date";
+import { chicagoDate, eventStatus, formatDay, isValidDate, shiftDate } from "@/lib/chicago-date";
 import { categories, groupVenues, type CampusEvent, type FilterCategory } from "@/lib/events";
 import type { EventsResult } from "@/lib/uw-events-api";
 import { EventCard } from "./event-card";
@@ -25,6 +25,8 @@ export function Experience({ initialDate, initial, initialEvent, mapKey }: { ini
   const [sheet, setSheet] = useState<SheetLevel>("peek");
   const [fitSignal, setFitSignal] = useState(0);
   const [campusSignal, setCampusSignal] = useState(0);
+  const [angledMap, setAngledMap] = useState(false);
+  const [minuteTick, setMinuteTick] = useState(0);
   const [focus, setFocus] = useState<[number, number] | null>(null);
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [locateError, setLocateError] = useState("");
@@ -42,6 +44,11 @@ export function Experience({ initialDate, initial, initialEvent, mapKey }: { ini
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [date, initialDate]);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setMinuteTick(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const updateUrl = useCallback((nextDate: string, eventId?: string | null) => {
     const url = new URL(window.location.href);
@@ -61,6 +68,8 @@ export function Experience({ initialDate, initial, initialEvent, mapKey }: { ini
     return categoryMatch && searchMatch;
   }), [events, query, category]);
   const groups = useMemo(() => groupVenues(filtered), [filtered]);
+  const statusTime = minuteTick ? new Date(minuteTick) : new Date();
+  const liveGroupIds = groups.filter((group) => group.events.some((event) => eventStatus(event.startsAt, event.endsAt, date, statusTime) === "now")).map((group) => group.id);
   const mappedCount = filtered.filter((event) => event.coordinates).length;
   const unmapped = filtered.filter((event) => !event.coordinates);
   const selected = events.find((event) => event.id === selectedId || event.officialId === selectedId);
@@ -113,11 +122,12 @@ export function Experience({ initialDate, initial, initialEvent, mapKey }: { ini
 
   return <main className="experience">
     <section className="map-panel" aria-label="Campus map">
-      <CampusMap groups={groups} selectedGroupId={activeGroupId} onSelect={selectGroup} focus={focus} userLocation={userLocation} fitSignal={fitSignal} campusSignal={campusSignal} mapKey={mapKey} />
+      <CampusMap groups={groups} selectedGroupId={activeGroupId} liveGroupIds={liveGroupIds} angled={angledMap} onSelect={selectGroup} focus={focus} userLocation={userLocation} fitSignal={fitSignal} campusSignal={campusSignal} mapKey={mapKey} />
       <div className="map-top-label"><span className="map-top-dot" /> UW–MADISON <span className="map-top-divider">/</span> MADISON, WI</div>
       <div className="map-tools">
         <button aria-label="Locate me" title="Locate me" onClick={locate}><LocateFixed size={19} /></button>
         <button aria-label="Fit today's events" title="Fit events" onClick={() => setFitSignal((n) => n + 1)}><MapPinned size={19} /></button>
+        <button aria-label={angledMap ? "Switch to 2D view" : "Switch to angled 3D view"} title={angledMap ? "2D map" : "Angled 3D map"} aria-pressed={angledMap} onClick={() => setAngledMap((value) => !value)}><Layers size={19} /></button>
         <button aria-label="Back to campus" title="Back to campus" onClick={() => setCampusSignal((n) => n + 1)}><Compass size={19} /></button>
       </div>
       {locateError && <div className="map-notice" role="status">{locateError}<button aria-label="Dismiss notice" onClick={() => setLocateError("")}><X size={14} /></button></div>}

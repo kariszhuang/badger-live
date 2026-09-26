@@ -23,6 +23,11 @@ describe("UW event normalization", () => {
     expect(events).toHaveLength(2);
     expect(events[0].id).not.toBe(events[1].id);
   });
+  it("maps explicit food tags to their own category while preserving mixed tags", () => {
+    const event = normalizeEvent({ ...snapshot.events[0], tags: ["Food", "music"] });
+    expect(event?.categories).toEqual(["food", "music"]);
+    expect(event?.category).toBe("food");
+  });
   it("normalizes all 20 verified September 26 records", () => {
     const events = normalizeEvents(snapshot.events);
     expect(events).toHaveLength(20);
