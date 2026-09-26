@@ -1,3 +1,5 @@
+# syntax=docker/dockerfile:1.7
+
 FROM oven/bun:1.4.2-alpine AS bun
 
 FROM node:24-alpine AS base
@@ -6,20 +8,26 @@ WORKDIR /app
 
 FROM base AS dependencies
 COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile
+RUN --mount=type=cache,id=badger-bun,target=/root/.bun/install/cache \
+    bun install --frozen-lockfile
 
 FROM base AS builder
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
-RUN bun run build
+ENV NEXT_TELEMETRY_DISABLED=1
+RUN --mount=type=cache,id=badger-next,target=/app/.next/cache \
+    bun run build
 
 FROM base AS runner
-ENV NODE_ENV=production
-COPY --from=dependencies /app/node_modules ./node_modules
-COPY --from=builder --chown=node:node /app/.next ./.next
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/package.json ./package.json
-COPY --from=builder /app/next.config.ts ./next.config.ts
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    HOSTNAME=0.0.0.0 \
+    PORT=3000
+
+COPY --from=builder --chown=node:node /app/.next/standalone ./
+COPY --from=builder --chown=node:node /app/.next/static ./.next/static
+COPY --from=builder --chown=node:node /app/public ./public
+
 USER node
 EXPOSE 3000
-CMD ["bun", "run", "start"]
+CMD ["node", "server.js"]
