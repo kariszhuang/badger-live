@@ -26,6 +26,28 @@ export type CampusEvent = {
   uwMapUrl?: string;
 };
 
+export const campusEventSchema = z.object({
+  id: z.string(),
+  officialId: z.string(),
+  title: z.string(),
+  subtitle: z.string().optional(),
+  description: z.string(),
+  startsAt: z.string().datetime(),
+  endsAt: z.string().datetime().optional(),
+  allDay: z.boolean(),
+  venueName: z.string().optional(),
+  locationLabel: z.string(),
+  coordinates: z.tuple([z.number(), z.number()]).nullable(),
+  tags: z.array(z.string()),
+  category: z.enum(["music", "food", "arts", "sports", "talks", "outdoors", "community", "other"]),
+  categories: z.array(z.enum(["music", "food", "arts", "sports", "talks", "outdoors", "community", "other"])),
+  priceLabel: z.string().optional(),
+  source: z.literal("uw-official"),
+  sourceUrl: z.string().url(),
+  organizerUrl: z.string().url().optional(),
+  uwMapUrl: z.string().url().optional(),
+});
+
 const rawEvent = z.object({
   id: z.union([z.number(), z.string()]),
   title: z.string().default(""),

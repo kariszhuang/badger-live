@@ -4,6 +4,9 @@ node_modules
 .github
 .vercel
 .turbo
+.env*
+supabase/.branches
+supabase/.temp
 .idea
 .vscode
 .DS_Store

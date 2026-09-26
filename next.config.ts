@@ -4,6 +4,7 @@ const nextConfig: NextConfig = {
   turbopack: { root: process.cwd() },
   outputFileTracingRoot: process.cwd(),
   output: "standalone",
+  agentRules: false,
 };
 
 export default nextConfig;

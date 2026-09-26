@@ -1,0 +1,1 @@
+-- Event days are populated from the verified UW Today API, never from fabricated seed rows.

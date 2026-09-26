@@ -124,6 +124,31 @@ test("event markers stay centered on their venue coordinates while zooming", asy
   expect(zoomedOut.transform).not.toBe(zoomedIn.transform);
 });
 
+test("event and landmark markers with the same coordinates stay aligned through zoom", async ({ page }) => {
+  await page.goto("/?date=2026-09-26");
+  const eventMarker = page.getByRole("button", { name: "5 events at Memorial Union" });
+  const landmarkMarker = page.getByRole("button", { name: "Show Memorial Union on the map" });
+  await expect(eventMarker).toBeVisible();
+  await expect(landmarkMarker).toBeVisible();
+  const samePoint = async () => {
+    const [eventBounds, landmarkBounds] = await Promise.all([eventMarker.boundingBox(), landmarkMarker.boundingBox()]);
+    if (!eventBounds || !landmarkBounds) return false;
+    // The landmark uses a left anchor with [9, -2] offset; both use the exact same coordinates.
+    const landmarkCoordinate = { x: landmarkBounds.x - 9, y: landmarkBounds.y + landmarkBounds.height / 2 + 2 };
+    const eventCenter = { x: eventBounds.x + eventBounds.width / 2, y: eventBounds.y + eventBounds.height / 2 };
+    return Math.abs(eventCenter.x - landmarkCoordinate.x) < 3 && Math.abs(eventCenter.y - landmarkCoordinate.y) < 3;
+  };
+  await expect.poll(samePoint).toBe(true);
+
+  const canvas = await page.locator(".maplibregl-canvas").boundingBox();
+  expect(canvas).not.toBeNull();
+  await page.mouse.move(canvas!.x + canvas!.width / 2, canvas!.y + canvas!.height / 2);
+  await page.mouse.wheel(0, -500);
+  await expect.poll(samePoint).toBe(true);
+  await page.mouse.wheel(0, 650);
+  await expect.poll(samePoint).toBe(true);
+});
+
 test("location access shows a private on-map position only after interaction", async ({ page, context }) => {
   await context.grantPermissions(["geolocation"]);
   await context.setGeolocation({ latitude: 43.075, longitude: -89.405 });
@@ -144,4 +169,70 @@ test("the angled campus view toggles cleanly back to 2D and landmarks can be foc
   const campRandall = page.getByRole("button", { name: "Show Camp Randall on the map" });
   if (testInfo.project.name === "mobile") await expect(campRandall).toHaveCount(1);
   else await campRandall.click();
+});
+
+test("campus building footprints load and open details directly from the map", async ({ page }) => {
+  const buildingsResponse = page.waitForResponse((response) => response.url().endsWith("/data/uw-campus-buildings.geojson") && response.ok());
+  await page.goto("/?date=2026-09-26");
+  await expect(page.locator(".maplibregl-canvas")).toBeVisible();
+  await buildingsResponse;
+
+  const canvas = await page.locator(".maplibregl-canvas").boundingBox();
+  expect(canvas).not.toBeNull();
+  const project = ([longitude, latitude]: [number, number]) => {
+    const scale = 512 * 2 ** 14.25;
+    const mercatorY = (value: number) => (1 - Math.asinh(Math.tan(value * Math.PI / 180)) / Math.PI) / 2 * scale;
+    return { x: (longitude + 180) / 360 * scale, y: mercatorY(latitude) };
+  };
+  const target = project([-89.40493702344519, 43.07480652279825]);
+  const center = project([-89.405, 43.075]);
+  const x = canvas!.x + canvas!.width / 2 + target.x - center.x;
+  const y = canvas!.y + canvas!.height / 2 + target.y - center.y;
+  const dialog = page.getByRole("dialog");
+  await expect(async () => {
+    await page.mouse.click(x, y);
+    await expect(dialog.getByRole("heading", { name: "Van Vleck Hall" })).toBeVisible({ timeout: 700 });
+  }).toPass({ timeout: 12000 });
+  await expect(dialog.getByRole("link", { name: /Open in official UW campus map/ })).toHaveAttribute("href", "https://map.wisc.edu/?initObj=0048");
+});
+
+test("campus directory searches buildings and opens verified UW details", async ({ page }) => {
+  await page.route("**/data/uw-campus-buildings.geojson", async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+    await route.continue();
+  });
+  await page.goto("/?date=2026-09-26");
+  await expect(page.locator(".maplibregl-canvas")).toBeVisible();
+  await page.getByRole("button", { name: /Explore campus buildings/ }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("heading", { name: "Explore UW–Madison buildings" })).toBeVisible();
+  await expect(dialog.getByText(/219 mapped UW campus buildings and complexes/)).toBeVisible({ timeout: 15000 });
+  await dialog.getByPlaceholder("Search by building, number, or address").fill("Bascom Hall");
+  await dialog.getByRole("button", { name: /Bascom Hall/ }).click();
+  await expect(dialog.getByRole("heading", { name: "Bascom Hall" })).toBeVisible();
+  await expect(dialog.getByText(/FP&M #0050 · 500 Lincoln Dr\./)).toBeVisible();
+  await expect(dialog.getByRole("link", { name: /Open in official UW campus map/ })).toHaveAttribute("href", "https://map.wisc.edu/?initObj=0050");
+  await dialog.getByRole("button", { name: /All campus buildings/ }).click();
+  await expect(dialog.getByPlaceholder("Search by building, number, or address")).toBeVisible();
+  await dialog.getByRole("button", { name: "Close" }).click();
+  await page.waitForTimeout(900);
+  const canvas = await page.locator(".maplibregl-canvas").boundingBox();
+  expect(canvas).not.toBeNull();
+  // selectBuilding focuses the official Bascom Hall center at zoom 15. Click
+  // a verified point inside its footprint, away from the overlapping landmark label.
+  const project = ([longitude, latitude]: [number, number]) => {
+    const scale = 512 * 2 ** 15;
+    const mercatorY = (value: number) => (1 - Math.asinh(Math.tan(value * Math.PI / 180)) / Math.PI) / 2 * scale;
+    return {
+      x: (longitude + 180) / 360 * scale,
+      y: mercatorY(latitude),
+    };
+  };
+  const target = project([-89.4041, 43.07572]);
+  const center = project([-89.40433580443906, 43.07534639770641]);
+  await page.mouse.click(
+    canvas!.x + canvas!.width / 2 + target.x - center.x,
+    canvas!.y + canvas!.height / 2 + target.y - center.y,
+  );
+  await expect(page.getByRole("dialog").getByRole("heading", { name: "Bascom Hall" })).toBeVisible();
 });

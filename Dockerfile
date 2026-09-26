@@ -14,6 +14,8 @@ RUN --mount=type=cache,id=badger-bun,target=/root/.bun/install/cache \
 FROM base AS builder
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY . .
+ARG NEXT_PUBLIC_MAPTILER_KEY
+ENV NEXT_PUBLIC_MAPTILER_KEY=${NEXT_PUBLIC_MAPTILER_KEY}
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN --mount=type=cache,id=badger-next,target=/app/.next/cache \
     bun run build

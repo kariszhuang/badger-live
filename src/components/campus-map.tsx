@@ -2,12 +2,21 @@
 
 import { useEffect, useRef } from "react";
 import * as maplibregl from "maplibre-gl";
-import type { Map as MapLibreMap, Marker } from "maplibre-gl";
+import type { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
+import type { FeatureCollection } from "geojson";
 import type { EventCategory, VenueGroup } from "@/lib/events";
+import { campusBuildingPropertiesSchema, type CampusBuilding, type CampusBuildings } from "@/lib/campus-buildings";
 
-type Props = { groups: VenueGroup[]; selectedGroupId: string | null; liveGroupIds: string[]; angled: boolean; onSelect: (id: string) => void; focus: [number, number] | null; userLocation: [number, number] | null; fitSignal: number; campusSignal: number; mapKey: string };
+type Props = { groups: VenueGroup[]; selectedGroupId: string | null; liveGroupIds: string[]; angled: boolean; onSelect: (id: string) => void; focus: [number, number] | null; userLocation: [number, number] | null; fitSignal: number; campusSignal: number; mapKey: string; buildings: CampusBuildings | null; selectedBuildingId: string | null; onSelectBuilding: (building: CampusBuilding, coordinates: [number, number]) => void };
 const CENTER: [number, number] = [-89.405, 43.075];
 const CAMPUS_BOUNDS: [[number, number], [number, number]] = [[-89.455, 43.045], [-89.375, 43.095]];
+const BUILDING_SOURCE = "uw-campus-buildings";
+const BUILDING_FILL = "uw-campus-building-fill";
+const BUILDING_SHADOW = "uw-campus-building-shadow";
+const BUILDING_OUTLINE = "uw-campus-building-outline";
+const BUILDING_PARTIAL = "uw-campus-building-partial";
+const BUILDING_POINTS = "uw-campus-building-complexes";
+const BUILDING_LABELS = "uw-campus-building-labels";
 const ICON_PATHS: Record<EventCategory, string[]> = {
   music: ["M9 18V5l12-2v13", "M9 9l12-2", "M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z", "M18 19a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"],
   food: ["M3 2v7a4 4 0 0 0 4 4", "M7 2v20", "M11 2v7a4 4 0 0 1-4 4", "M16 2v20", "M20 2v7a4 4 0 0 1-4 4"],
@@ -26,7 +35,7 @@ const LANDMARKS = [
 ];
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-export function CampusMap({ groups, selectedGroupId, liveGroupIds, angled, onSelect, focus, userLocation, fitSignal, campusSignal, mapKey }: Props) {
+export function CampusMap({ groups, selectedGroupId, liveGroupIds, angled, onSelect, focus, userLocation, fitSignal, campusSignal, mapKey, buildings, selectedBuildingId, onSelectBuilding }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const markers = useRef<Marker[]>([]);
@@ -34,17 +43,72 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, angled, onSel
   const userMarker = useRef<Marker | null>(null);
   const fallbackUsed = useRef(false);
   const onSelectRef = useRef(onSelect);
+  const onSelectBuildingRef = useRef(onSelectBuilding);
+  const buildingsRef = useRef(buildings);
+  const selectedBuildingIdRef = useRef(selectedBuildingId);
+  const previousSelectedBuildingId = useRef<string | null>(null);
+  const installBuildingHandlers = useRef<(() => void) | null>(null);
+  const buildingHandlersAttached = useRef(false);
   const angledRef = useRef(angled);
   useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
+  useEffect(() => { onSelectBuildingRef.current = onSelectBuilding; }, [onSelectBuilding]);
+  useEffect(() => { buildingsRef.current = buildings; }, [buildings]);
+  useEffect(() => { selectedBuildingIdRef.current = selectedBuildingId; }, [selectedBuildingId]);
   useEffect(() => { angledRef.current = angled; }, [angled]);
 
   useEffect(() => {
     if (!container.current || map.current) return;
     maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
     const style = mapKey ? `https://api.maptiler.com/maps/streets-v4/style.json?key=${encodeURIComponent(mapKey)}` : "https://tiles.openfreemap.org/styles/liberty";
-    const instance = new maplibregl.Map({ container: container.current, style, center: CENTER, zoom: 13.5, minZoom: 11.5, maxZoom: 17, maxBounds: CAMPUS_BOUNDS, maxPitch: 60, attributionControl: false, pitchWithRotate: false, dragRotate: false });
+    const instance = new maplibregl.Map({ container: container.current, style, center: CENTER, zoom: 14.25, minZoom: 11.5, maxZoom: 17, maxBounds: CAMPUS_BOUNDS, maxPitch: 60, attributionControl: false, pitchWithRotate: false, dragRotate: false });
     instance.addControl(new maplibregl.AttributionControl({ compact: false }), "bottom-right");
-    instance.on("style.load", () => applyCampusPalette(instance, angledRef.current));
+    const attachHandlersWhenReady = () => {
+      if (buildingHandlersAttached.current || !instance.getLayer(BUILDING_FILL)) return;
+      let hoveredBuildingId: string | null = null;
+      const clearHover = () => {
+        if (hoveredBuildingId !== null && instance.getSource(BUILDING_SOURCE)) instance.setFeatureState({ source: BUILDING_SOURCE, id: hoveredBuildingId }, { hover: false });
+        hoveredBuildingId = null;
+        instance.getCanvas().style.cursor = "";
+      };
+      const interactiveLayers = () => [BUILDING_FILL, BUILDING_POINTS].filter((layerId) => instance.getLayer(layerId));
+      const onBuildingMove = (event: maplibregl.MapMouseEvent) => {
+        const layers = interactiveLayers();
+        const feature = layers.length ? instance.queryRenderedFeatures(event.point, { layers })[0] : undefined;
+        const rawId = feature?.properties?.mapObjectId ?? feature?.id;
+        if (rawId === undefined || rawId === null) { clearHover(); return; }
+        const id = String(rawId);
+        if (hoveredBuildingId !== id) {
+          clearHover();
+          hoveredBuildingId = id;
+          instance.setFeatureState({ source: BUILDING_SOURCE, id }, { hover: true });
+        }
+        instance.getCanvas().style.cursor = "pointer";
+      };
+      const onBuildingClick = (event: maplibregl.MapMouseEvent) => {
+        const target = event.originalEvent.target;
+        if (target instanceof Element && target.closest(".maplibregl-marker, .venue-marker-anchor, .landmark-marker, .maplibregl-ctrl")) return;
+        const layers = interactiveLayers();
+        const feature = layers.length ? instance.queryRenderedFeatures(event.point, { layers })[0] : undefined;
+        const building = campusBuildingPropertiesSchema.safeParse(feature?.properties);
+        if (!building.success) return;
+        onSelectBuildingRef.current(building.data, [event.lngLat.lng, event.lngLat.lat]);
+      };
+      instance.on("mousemove", onBuildingMove);
+      instance.on("click", onBuildingClick);
+      instance.getCanvasContainer().addEventListener("mouseleave", clearHover);
+      buildingHandlersAttached.current = true;
+    };
+    installBuildingHandlers.current = attachHandlersWhenReady;
+    const syncCampusBuildings = () => {
+      if (!buildingsRef.current || !instance.isStyleLoaded()) return;
+      addCampusBuildings(instance, buildingsRef.current, selectedBuildingIdRef.current);
+      attachHandlersWhenReady();
+    };
+    instance.on("style.load", () => {
+      applyCampusPalette(instance, angledRef.current);
+      if (instance.isStyleLoaded()) syncCampusBuildings();
+      else instance.once("idle", syncCampusBuildings);
+    });
     instance.on("error", () => {
       if (mapKey && !fallbackUsed.current) {
         fallbackUsed.current = true;
@@ -71,9 +135,33 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, angled, onSel
       element.addEventListener("click", () => instance.flyTo({ center: landmark.coordinates, zoom: Math.max(instance.getZoom(), 15.5), essential: true }));
       return new maplibregl.Marker({ element, anchor: "left", offset: [9, -2] }).setLngLat(landmark.coordinates).addTo(instance);
     });
-    return () => { markers.current.forEach((marker) => marker.remove()); markers.current = []; landmarkMarkers.current.forEach((marker) => marker.remove()); landmarkMarkers.current = []; userMarker.current?.remove(); userMarker.current = null; instance.remove(); map.current = null; };
+    return () => { markers.current.forEach((marker) => marker.remove()); markers.current = []; landmarkMarkers.current.forEach((marker) => marker.remove()); landmarkMarkers.current = []; userMarker.current?.remove(); userMarker.current = null; installBuildingHandlers.current = null; buildingHandlersAttached.current = false; instance.remove(); map.current = null; };
     // One map instance survives filtering and date changes.
   }, [mapKey]);
+
+  useEffect(() => {
+    const instance = map.current;
+    if (!instance || !buildings) return;
+    const syncCampusBuildings = () => {
+      if (!instance.isStyleLoaded()) return;
+      addCampusBuildings(instance, buildings, selectedBuildingIdRef.current);
+      installBuildingHandlers.current?.();
+    };
+    if (instance.isStyleLoaded()) syncCampusBuildings();
+    else instance.once("idle", syncCampusBuildings);
+    return () => { instance.off("idle", syncCampusBuildings); };
+  }, [buildings]);
+
+  useEffect(() => {
+    const instance = map.current;
+    if (!instance?.isStyleLoaded() || !instance.getSource(BUILDING_SOURCE)) return;
+    if (previousSelectedBuildingId.current && previousSelectedBuildingId.current !== selectedBuildingId) {
+      instance.setFeatureState({ source: BUILDING_SOURCE, id: previousSelectedBuildingId.current }, { selected: false });
+    }
+    if (selectedBuildingId) instance.setFeatureState({ source: BUILDING_SOURCE, id: selectedBuildingId }, { selected: true });
+    previousSelectedBuildingId.current = selectedBuildingId;
+    // The map style may have reset feature state while replacing its basemap.
+  }, [selectedBuildingId, buildings]);
 
   useEffect(() => {
     if (!map.current) return;
@@ -139,8 +227,97 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, angled, onSel
     map.current.fitBounds(bounds, { padding: 70, maxZoom: 15, duration: 650 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitSignal]);
-  useEffect(() => { if (campusSignal && map.current) map.current.flyTo({ center: CENTER, zoom: 13.5, essential: true }); }, [campusSignal]);
+  useEffect(() => { if (campusSignal && map.current) map.current.flyTo({ center: CENTER, zoom: 14.25, essential: true }); }, [campusSignal]);
   return <div ref={container} className="map-canvas" role="application" aria-label="Interactive map of UW–Madison event venues" />;
+}
+
+function addCampusBuildings(instance: MapLibreMap, collection: CampusBuildings | null, selectedBuildingId: string | null) {
+  if (!collection || !instance.isStyleLoaded()) return;
+  const existingSource = instance.getSource(BUILDING_SOURCE) as GeoJSONSource | undefined;
+  if (existingSource) {
+    existingSource.setData(collection as unknown as FeatureCollection);
+  } else {
+    instance.addSource(BUILDING_SOURCE, {
+      type: "geojson",
+      data: collection as unknown as FeatureCollection,
+      promoteId: "mapObjectId",
+    });
+  }
+
+  const firstSymbol = instance.getStyle().layers.find((layer) => layer.type === "symbol")?.id;
+  const beforeId = firstSymbol;
+  if (!instance.getLayer(BUILDING_FILL)) {
+    instance.addLayer({
+      id: BUILDING_FILL,
+      type: "fill",
+      source: BUILDING_SOURCE,
+      filter: ["any", ["==", ["geometry-type"], "Polygon"], ["==", ["geometry-type"], "MultiPolygon"]],
+      layout: { visibility: "visible" },
+      paint: {
+        "fill-color": ["case", ["boolean", ["feature-state", "selected"], false], "#c5050c", ["boolean", ["feature-state", "hover"], false], "#c94d48", "#d65f56"],
+        "fill-opacity": ["case", ["boolean", ["feature-state", "selected"], false], 0.86, ["boolean", ["feature-state", "hover"], false], 0.82, 0.76],
+      },
+    }, beforeId);
+    instance.addLayer({
+      id: BUILDING_SHADOW,
+      type: "line",
+      source: BUILDING_SOURCE,
+      filter: ["all", ["any", ["==", ["geometry-type"], "Polygon"], ["==", ["geometry-type"], "MultiPolygon"]], ["!=", ["get", "footprintStatus"], "partial"]],
+      paint: {
+        "line-color": "#513231",
+        "line-width": 2.5,
+        "line-opacity": 0.13,
+        "line-translate": [0, 1.5],
+        "line-translate-anchor": "viewport",
+      },
+    }, beforeId);
+    instance.addLayer({
+      id: BUILDING_OUTLINE,
+      type: "line",
+      source: BUILDING_SOURCE,
+      filter: ["all", ["any", ["==", ["geometry-type"], "Polygon"], ["==", ["geometry-type"], "MultiPolygon"]], ["!=", ["get", "footprintStatus"], "partial"]],
+      paint: {
+        "line-color": ["case", ["boolean", ["feature-state", "selected"], false], "#79080c", ["boolean", ["feature-state", "hover"], false], "#a12f31", "#7f3032"],
+        "line-width": ["case", ["boolean", ["feature-state", "selected"], false], 3.2, ["boolean", ["feature-state", "hover"], false], 2.4, 2],
+        "line-opacity": 0.92,
+      },
+    }, beforeId);
+    instance.addLayer({
+      id: BUILDING_PARTIAL,
+      type: "line",
+      source: BUILDING_SOURCE,
+      filter: ["==", ["get", "footprintStatus"], "partial"],
+      paint: { "line-color": "#a47a3e", "line-width": 1.7, "line-dasharray": [2, 1.5], "line-opacity": 0.9 },
+    }, beforeId);
+    instance.addLayer({
+      id: BUILDING_POINTS,
+      type: "circle",
+      source: BUILDING_SOURCE,
+      filter: ["==", ["geometry-type"], "Point"],
+      paint: {
+        "circle-radius": ["case", ["boolean", ["feature-state", "selected"], false], 9, 6],
+        "circle-color": ["case", ["boolean", ["feature-state", "selected"], false], "#c5050c", "#aa4d48"],
+        "circle-stroke-color": "#fffdf8",
+        "circle-stroke-width": 2.5,
+      },
+    }, beforeId);
+    instance.addLayer({
+      id: BUILDING_LABELS,
+      type: "symbol",
+      source: BUILDING_SOURCE,
+      minzoom: 15,
+      layout: {
+        "text-field": ["get", "name"],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": ["interpolate", ["linear"], ["zoom"], 15, 10, 17, 12],
+        "text-anchor": "center",
+        "text-max-width": 11,
+        "text-optional": true,
+      },
+      paint: { "text-color": "#703735", "text-halo-color": "#fffaf2", "text-halo-width": 1.6, "text-opacity": 0.94 },
+    });
+  }
+  if (selectedBuildingId) instance.setFeatureState({ source: BUILDING_SOURCE, id: selectedBuildingId }, { selected: true });
 }
 
 function createEventIcon(category: EventCategory): SVGSVGElement {
@@ -159,6 +336,7 @@ function createEventIcon(category: EventCategory): SVGSVGElement {
 function applyCampusPalette(instance: MapLibreMap, angled: boolean) {
   if (!instance.isStyleLoaded()) return;
   for (const layer of instance.getStyle().layers) {
+    if (layer.id.startsWith("uw-campus-building-")) continue;
     const name = layer.id.toLowerCase();
     if (layer.type === "fill-extrusion" && name.includes("building")) {
       instance.setPaintProperty(layer.id, "fill-extrusion-color", "#e9decd");
