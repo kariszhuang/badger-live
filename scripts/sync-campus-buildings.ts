@@ -1,6 +1,7 @@
 import { mkdir, rename, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
+import { campusBuildingDescriptions } from "../src/lib/campus-building-descriptions";
 
 const pair = z.array(z.number().finite()).min(2);
 const ring = z.array(pair).min(4);
@@ -73,6 +74,10 @@ const features = raw.flatMap((entry: unknown) => {
   const parsed = rawBuildingSchema.safeParse(entry);
   if (!parsed.success) return [];
   const building = parsed.data;
+  const mapObjectId = String(building.map_object_id);
+  if (!campusBuildingDescriptions[mapObjectId]) {
+    throw new Error(`Add a short description for new campus map object ${mapObjectId} (${building.name}) before syncing`);
+  }
   const [longitude, latitude] = centerOf(building.geojson, building.lnglat ?? undefined);
   if (longitude < CAMPUS_BOUNDS.west || longitude > CAMPUS_BOUNDS.east || latitude < CAMPUS_BOUNDS.south || latitude > CAMPUS_BOUNDS.north) return [];
   return [{
@@ -80,7 +85,7 @@ const features = raw.flatMap((entry: unknown) => {
     id: String(building.map_object_id),
     geometry: building.geojson,
     properties: {
-      mapObjectId: String(building.map_object_id),
+      mapObjectId,
       name: plainText(building.name) || `UW campus building ${building.map_object_id}`,
       buildingNumber: plainText(building.building_number),
       streetAddress: plainText(building.street_address),

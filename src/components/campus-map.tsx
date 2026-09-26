@@ -5,7 +5,7 @@ import * as maplibregl from "maplibre-gl";
 import type { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
 import type { FeatureCollection } from "geojson";
 import type { EventCategory, VenueGroup } from "@/lib/events";
-import { campusBuildingPropertiesSchema, type CampusBuilding, type CampusBuildings } from "@/lib/campus-buildings";
+import { findCampusBuildingAt, type CampusBuilding, type CampusBuildings } from "@/lib/campus-buildings";
 
 type Props = { groups: VenueGroup[]; selectedGroupId: string | null; liveGroupIds: string[]; angled: boolean; onSelect: (id: string) => void; focus: [number, number] | null; userLocation: [number, number] | null; fitSignal: number; campusSignal: number; mapKey: string; buildings: CampusBuildings | null; selectedBuildingId: string | null; onSelectBuilding: (building: CampusBuilding, coordinates: [number, number]) => void };
 const CENTER: [number, number] = [-89.405, 43.075];
@@ -63,7 +63,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, angled, onSel
     const instance = new maplibregl.Map({ container: container.current, style, center: CENTER, zoom: 14.25, minZoom: 11.5, maxZoom: 17, maxBounds: CAMPUS_BOUNDS, maxPitch: 60, attributionControl: false, pitchWithRotate: false, dragRotate: false });
     instance.addControl(new maplibregl.AttributionControl({ compact: false }), "bottom-right");
     const attachHandlersWhenReady = () => {
-      if (buildingHandlersAttached.current || !instance.getLayer(BUILDING_FILL)) return;
+      if (buildingHandlersAttached.current) return;
       let hoveredBuildingId: string | null = null;
       const clearHover = () => {
         if (hoveredBuildingId !== null && instance.getSource(BUILDING_SOURCE)) instance.setFeatureState({ source: BUILDING_SOURCE, id: hoveredBuildingId }, { hover: false });
@@ -75,12 +75,14 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, angled, onSel
         const layers = interactiveLayers();
         const feature = layers.length ? instance.queryRenderedFeatures(event.point, { layers })[0] : undefined;
         const rawId = feature?.properties?.mapObjectId ?? feature?.id;
-        if (rawId === undefined || rawId === null) { clearHover(); return; }
-        const id = String(rawId);
+        const building = (rawId === undefined || rawId === null ? undefined : buildingsRef.current?.features.find(({ properties }) => properties.mapObjectId === String(rawId)))
+          ?? findCampusBuildingAt(buildingsRef.current, [event.lngLat.lng, event.lngLat.lat]);
+        if (!building) { clearHover(); return; }
+        const id = building.properties.mapObjectId;
         if (hoveredBuildingId !== id) {
           clearHover();
           hoveredBuildingId = id;
-          instance.setFeatureState({ source: BUILDING_SOURCE, id }, { hover: true });
+          if (instance.getSource(BUILDING_SOURCE)) instance.setFeatureState({ source: BUILDING_SOURCE, id }, { hover: true });
         }
         instance.getCanvas().style.cursor = "pointer";
       };
@@ -89,9 +91,12 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, angled, onSel
         if (target instanceof Element && target.closest(".maplibregl-marker, .venue-marker-anchor, .landmark-marker, .maplibregl-ctrl")) return;
         const layers = interactiveLayers();
         const feature = layers.length ? instance.queryRenderedFeatures(event.point, { layers })[0] : undefined;
-        const building = campusBuildingPropertiesSchema.safeParse(feature?.properties);
-        if (!building.success) return;
-        onSelectBuildingRef.current(building.data, [event.lngLat.lng, event.lngLat.lat]);
+        const rawId = feature?.properties?.mapObjectId ?? feature?.id;
+        const coordinate: [number, number] = [event.lngLat.lng, event.lngLat.lat];
+        const buildingFeature = (rawId === undefined || rawId === null ? undefined : buildingsRef.current?.features.find(({ properties }) => properties.mapObjectId === String(rawId)))
+          ?? findCampusBuildingAt(buildingsRef.current, coordinate);
+        if (!buildingFeature) return;
+        onSelectBuildingRef.current(buildingFeature.properties, coordinate);
       };
       instance.on("mousemove", onBuildingMove);
       instance.on("click", onBuildingClick);
@@ -99,6 +104,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, angled, onSel
       buildingHandlersAttached.current = true;
     };
     installBuildingHandlers.current = attachHandlersWhenReady;
+    attachHandlersWhenReady();
     const syncCampusBuildings = () => {
       if (!buildingsRef.current || !instance.isStyleLoaded()) return;
       addCampusBuildings(instance, buildingsRef.current, selectedBuildingIdRef.current);

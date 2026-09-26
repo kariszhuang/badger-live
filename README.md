@@ -9,7 +9,9 @@ Requires Node 24, Bun 1.4+, and OrbStack (or another Docker-compatible runtime) 
 1. `bun install --frozen-lockfile`
 2. Ensure `.env.local` has `NEXT_PUBLIC_MAPTILER_KEY` set to a public MapTiler key. If creating it for the first time, use `.env.example` as a reference; preserve existing local credentials. The local Supabase URL defaults to port 54322 in development.
 3. `bun run db:start`
-4. `bun run dev`, then open `http://localhost:3000`.
+4. `bun run dev`, then open `http://localhost:3000`. The dev and production-start servers bind to `0.0.0.0`; to open the app on a phone connected to the same Wi-Fi, use `http://<Mac-LAN-IP>:3000` (find the address in the dev-server output or with `ipconfig getifaddr en0`). For the built standalone app, run `PORT=3200 bun run start`; it also binds to `0.0.0.0`.
+
+Location is requested only when someone taps **Locate me**, and each tap asks the browser for a fresh position. Browsers remember a site's granted or denied permission, so a prompt is not shown on every tap after the user has made a choice. Geolocation requires a secure context: localhost works over HTTP, but a phone using the Mac's LAN IP needs a trusted HTTPS URL. The plain-HTTP LAN preview still supports the map and events and explains this limitation when Locate me is tapped.
 
 Supabase Studio is available at `http://127.0.0.1:54323`. To stop the local stack, run `bun run db:stop`. The application connects to local Postgres on port 54322; no remote Supabase project is linked.
 

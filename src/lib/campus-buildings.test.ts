@@ -1,7 +1,8 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { campusBuildingPropertiesSchema, parseCampusBuildings } from "./campus-buildings";
+import { campusBuildingPropertiesSchema, findCampusBuildingAt, parseCampusBuildings } from "./campus-buildings";
+import { campusBuildingDescriptions } from "./campus-building-descriptions";
 
 describe("UW campus building data", () => {
   const collection = parseCampusBuildings(JSON.parse(readFileSync(resolve(process.cwd(), "public/data/uw-campus-buildings.geojson"), "utf8")) as unknown);
@@ -12,6 +13,16 @@ describe("UW campus building data", () => {
     expect(collection.features.filter(({ properties }) => properties.footprintStatus === "partial")).toHaveLength(3);
     expect(collection.features.filter(({ properties }) => properties.footprintStatus === "complex")).toHaveLength(4);
     expect(collection.features.filter(({ geometry }) => geometry.type === "Point")).toHaveLength(4);
+  });
+
+  it("has a concise summary for every mapped campus building and complex", () => {
+    const featureIds = collection.features.map(({ properties }) => properties.mapObjectId).sort();
+    expect(Object.keys(campusBuildingDescriptions).sort()).toEqual(featureIds);
+    for (const { properties } of collection.features) {
+      expect(properties.shortDescription.length).toBeGreaterThan(30);
+      expect(properties.shortDescription.length).toBeLessThanOrEqual(180);
+      expect(properties.shortDescription).not.toMatch(/building information and geometry|\bUW building\b/i);
+    }
   });
 
   it("preserves official campus coordinates and uses UW building-number detail links", () => {
@@ -27,6 +38,12 @@ describe("UW campus building data", () => {
 
     const eagleHeights = collection.features.find(({ properties }) => properties.name === "Eagle Heights");
     expect(eagleHeights?.properties.officialMapUrl).toBe("https://map.wisc.edu/");
+  });
+
+  it("resolves direct map clicks against building outlines without selecting nearby buildings", () => {
+    const vanVleck = findCampusBuildingAt(collection, [-89.405, 43.075]);
+    expect(vanVleck?.properties.name).toBe("Van Vleck Hall");
+    expect(findCampusBuildingAt(collection, [0, 0])).toBeUndefined();
   });
 
   it("rejects malformed geometry rather than drawing invented outlines", () => {

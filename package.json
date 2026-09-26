@@ -5,10 +5,10 @@
   "packageManager": "bun@1.4.2",
   "scripts": {
     "predev": "node scripts/copy-maplibre-worker.mjs",
-    "dev": "next dev",
+    "dev": "next dev --hostname 0.0.0.0",
     "prebuild": "node scripts/copy-maplibre-worker.mjs",
     "build": "next build",
-    "start": "next start",
+    "start": "node scripts/start-standalone.mjs",
     "lint": "eslint",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",

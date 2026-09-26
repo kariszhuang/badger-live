@@ -152,10 +152,39 @@ test("event and landmark markers with the same coordinates stay aligned through 
 test("location access shows a private on-map position only after interaction", async ({ page, context }) => {
   await context.grantPermissions(["geolocation"]);
   await context.setGeolocation({ latitude: 43.075, longitude: -89.405 });
+  await page.addInitScript(() => {
+    const geolocation = navigator.geolocation;
+    const getCurrentPosition = geolocation.getCurrentPosition.bind(geolocation);
+    const requests: number[] = [];
+    Object.defineProperty(window, "__badgerLocationRequests", { value: requests, configurable: false });
+    Object.defineProperty(navigator, "geolocation", {
+      configurable: true,
+      value: {
+        getCurrentPosition(success: PositionCallback, error?: PositionErrorCallback | null, options?: PositionOptions) {
+          requests.push(options?.maximumAge ?? -1);
+          return getCurrentPosition(success, error, options);
+        },
+        watchPosition: geolocation.watchPosition.bind(geolocation),
+        clearWatch: geolocation.clearWatch.bind(geolocation),
+      },
+    });
+  });
   await page.goto("/?date=2026-09-26");
   await expect(page.getByRole("img", { name: "Your current location" })).toHaveCount(0);
   await page.getByRole("button", { name: "Locate me" }).click();
   await expect(page.getByRole("img", { name: "Your current location" })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __badgerLocationRequests: number[] }).__badgerLocationRequests)).toEqual([0]);
+  await page.getByRole("button", { name: "Locate me" }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __badgerLocationRequests: number[] }).__badgerLocationRequests)).toEqual([0, 0]);
+});
+
+test("location explains that a secure connection is required on LAN devices", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "isSecureContext", { configurable: true, value: false });
+  });
+  await page.goto("/?date=2026-09-26");
+  await page.getByRole("button", { name: "Locate me" }).click();
+  await expect(page.getByRole("status")).toContainText(/HTTPS.*local network/i);
 });
 
 test("the angled campus view toggles cleanly back to 2D and landmarks can be focused", async ({ page }, testInfo) => {
@@ -176,6 +205,7 @@ test("campus building footprints load and open details directly from the map", a
   await page.goto("/?date=2026-09-26");
   await expect(page.locator(".maplibregl-canvas")).toBeVisible();
   await buildingsResponse;
+  await expect(page.getByRole("button", { name: /Explore campus buildings 219/ })).toBeVisible();
 
   const canvas = await page.locator(".maplibregl-canvas").boundingBox();
   expect(canvas).not.toBeNull();
@@ -184,7 +214,9 @@ test("campus building footprints load and open details directly from the map", a
     const mercatorY = (value: number) => (1 - Math.asinh(Math.tan(value * Math.PI / 180)) / Math.PI) / 2 * scale;
     return { x: (longitude + 180) / 360 * scale, y: mercatorY(latitude) };
   };
-  const target = project([-89.40493702344519, 43.07480652279825]);
+  // Click a verified point inside Van Vleck Hall's footprint, not its derived
+  // centroid (the outline is irregular and the centroid may fall outside it).
+  const target = project([-89.4051295, 43.0748355]);
   const center = project([-89.405, 43.075]);
   const x = canvas!.x + canvas!.width / 2 + target.x - center.x;
   const y = canvas!.y + canvas!.height / 2 + target.y - center.y;
@@ -193,27 +225,24 @@ test("campus building footprints load and open details directly from the map", a
     await page.mouse.click(x, y);
     await expect(dialog.getByRole("heading", { name: "Van Vleck Hall" })).toBeVisible({ timeout: 700 });
   }).toPass({ timeout: 12000 });
-  await expect(dialog.getByRole("link", { name: /Open in official UW campus map/ })).toHaveAttribute("href", "https://map.wisc.edu/?initObj=0048");
+  await expect(dialog.getByRole("link", { name: /Open on campus map/ })).toHaveAttribute("href", "https://map.wisc.edu/?initObj=0048");
 });
 
 test("campus directory searches buildings and opens verified UW details", async ({ page }) => {
-  await page.route("**/data/uw-campus-buildings.geojson", async (route) => {
-    await new Promise((resolve) => setTimeout(resolve, 2500));
-    await route.continue();
-  });
   await page.goto("/?date=2026-09-26");
   await expect(page.locator(".maplibregl-canvas")).toBeVisible();
   await page.getByRole("button", { name: /Explore campus buildings/ }).click();
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("heading", { name: "Explore UW–Madison buildings" })).toBeVisible();
   await expect(dialog.getByText(/219 mapped UW campus buildings and complexes/)).toBeVisible({ timeout: 15000 });
-  await dialog.getByPlaceholder("Search by building, number, or address").fill("Bascom Hall");
+  await dialog.getByPlaceholder("Search buildings, places, or uses").fill("Chancellor");
   await dialog.getByRole("button", { name: /Bascom Hall/ }).click();
   await expect(dialog.getByRole("heading", { name: "Bascom Hall" })).toBeVisible();
   await expect(dialog.getByText(/FP&M #0050 · 500 Lincoln Dr\./)).toBeVisible();
-  await expect(dialog.getByRole("link", { name: /Open in official UW campus map/ })).toHaveAttribute("href", "https://map.wisc.edu/?initObj=0050");
+  await expect(dialog.locator(".building-description")).toHaveText("Campus leadership and central administration, including the Chancellor and Provost offices.");
+  await expect(dialog.getByRole("link", { name: /Open on campus map/ })).toHaveAttribute("href", "https://map.wisc.edu/?initObj=0050");
   await dialog.getByRole("button", { name: /All campus buildings/ }).click();
-  await expect(dialog.getByPlaceholder("Search by building, number, or address")).toBeVisible();
+  await expect(dialog.getByPlaceholder("Search buildings, places, or uses")).toBeVisible();
   await dialog.getByRole("button", { name: "Close" }).click();
   await page.waitForTimeout(900);
   const canvas = await page.locator(".maplibregl-canvas").boundingBox();

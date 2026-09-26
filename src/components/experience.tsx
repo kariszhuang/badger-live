@@ -31,6 +31,8 @@ export function Experience({ initialDate, initial, initialEvent, mapKey }: { ini
   const [focus, setFocus] = useState<[number, number] | null>(null);
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
   const [locateError, setLocateError] = useState("");
+  const [locating, setLocating] = useState(false);
+  const locationRequest = useRef(false);
   const [copied, setCopied] = useState(false);
   const [buildings, setBuildings] = useState<CampusBuildings | null>(null);
   const [buildingError, setBuildingError] = useState(false);
@@ -92,7 +94,7 @@ export function Experience({ initialDate, initial, initialEvent, mapKey }: { ini
   const selectedGroup = groups.find((group) => group.id === activeGroupId);
   const filteredBuildings = useMemo(() => {
     const needle = buildingQuery.trim().toLocaleLowerCase();
-    return (buildings?.features || []).filter(({ properties: building }) => !needle || [building.name, building.buildingNumber, building.streetAddress, building.description].some((field) => field?.toLocaleLowerCase().includes(needle))).sort((a, b) => a.properties.name.localeCompare(b.properties.name));
+    return (buildings?.features || []).filter(({ properties: building }) => !needle || [building.name, building.shortDescription, building.buildingNumber, building.streetAddress].some((field) => field?.toLocaleLowerCase().includes(needle))).sort((a, b) => a.properties.name.localeCompare(b.properties.name));
   }, [buildings, buildingQuery]);
 
   const selectBuilding = (building: CampusBuilding, coordinates = building.center) => {
@@ -135,12 +137,64 @@ export function Experience({ initialDate, initial, initialEvent, mapKey }: { ini
 
   const locate = () => {
     setLocateError("");
-    if (!navigator.geolocation) { setLocateError("Location is unavailable in this browser."); return; }
-    navigator.geolocation.getCurrentPosition((position) => {
+    if (!window.isSecureContext) {
+      setLocateError("Location requires HTTPS from another device on your local network; this page is HTTP. Open a trusted HTTPS URL to enable location access.");
+      return;
+    }
+    const geolocation = navigator.geolocation;
+    if (!geolocation) { setLocateError("Location is unavailable in this browser."); return; }
+    if (locationRequest.current) return;
+
+    locationRequest.current = true;
+    setLocating(true);
+    setLocateError("Requesting location permission and a fresh device position…");
+    setUserLocation(null);
+
+    const finish = () => {
+      locationRequest.current = false;
+      setLocating(false);
+    };
+    const showPosition = (position: GeolocationPosition) => {
       const coordinates: [number, number] = [position.coords.longitude, position.coords.latitude];
       setUserLocation(coordinates);
       setFocus(coordinates);
-    }, () => setLocateError("Location permission was declined or unavailable."), { enableHighAccuracy: false, timeout: 8000, maximumAge: 60000 });
+      setLocateError("");
+      finish();
+    };
+    const showError = (error: GeolocationPositionError, approximateAttempted = false) => {
+      if (!approximateAttempted && (error.code === error.POSITION_UNAVAILABLE || error.code === error.TIMEOUT)) {
+        setLocateError("A precise location is taking too long; trying an approximate position…");
+        try {
+          geolocation.getCurrentPosition(showPosition, (fallbackError) => showError(fallbackError, true), {
+            enableHighAccuracy: false,
+            timeout: 12000,
+            maximumAge: 0,
+          });
+          return;
+        } catch { /* Fall through to the actionable location error. */ }
+      }
+
+      const message = error.code === error.PERMISSION_DENIED
+        ? "Location permission was denied for this site. Enable Location in your browser’s site settings, then tap Locate me again."
+        : error.code === error.POSITION_UNAVAILABLE
+          ? "Your device couldn’t determine a location. Check device location services and try again."
+          : error.code === error.TIMEOUT
+            ? "Location took too long. Check GPS or network access, then tap Locate me to retry."
+            : "Location is unavailable right now. Check browser and device location settings, then try again.";
+      setLocateError(message);
+      finish();
+    };
+
+    try {
+      geolocation.getCurrentPosition(showPosition, showError, {
+        enableHighAccuracy: true,
+        timeout: 12000,
+        maximumAge: 0,
+      });
+    } catch {
+      setLocateError("Location is unavailable right now. Check browser and device location settings, then try again.");
+      finish();
+    }
   };
 
   const renderCards = (items: CampusEvent[]) => items.map((event) => <EventCard key={event.id} event={event} date={date} expanded={selected?.id === event.id} onSelect={() => selectEvent(event)} onShare={() => share(event)} />);
@@ -149,9 +203,9 @@ export function Experience({ initialDate, initial, initialEvent, mapKey }: { ini
     <section className="map-panel" aria-label="Campus map">
       <CampusMap groups={groups} selectedGroupId={activeGroupId} liveGroupIds={liveGroupIds} angled={angledMap} onSelect={selectGroup} focus={focus} userLocation={userLocation} fitSignal={fitSignal} campusSignal={campusSignal} mapKey={mapKey} buildings={buildings} selectedBuildingId={selectedBuilding?.mapObjectId || null} onSelectBuilding={selectBuilding} />
       <div className="map-top-label"><span className="map-top-dot" /> UW–MADISON <span className="map-top-divider">/</span> MADISON, WI</div>
-      <div className="building-map-legend"><span aria-hidden="true" />UW building footprints <small>· select for details</small></div>
+      <div className="building-map-legend"><span aria-hidden="true" />Campus buildings <small>· select for details</small></div>
       <div className="map-tools">
-        <button aria-label="Locate me" title="Locate me" onClick={locate}><LocateFixed size={19} /></button>
+        <button aria-label="Locate me" title={locating ? "Requesting your location…" : "Request location (permission is requested on tap)"} aria-busy={locating} disabled={locating} className={locating ? "is-locating" : undefined} onClick={locate}><LocateFixed size={19} /></button>
         <button aria-label="Fit today's events" title="Fit events" onClick={() => setFitSignal((n) => n + 1)}><MapPinned size={19} /></button>
         <button aria-label={angledMap ? "Switch to 2D view" : "Switch to angled 3D view"} title={angledMap ? "2D map" : "Angled 3D map"} aria-pressed={angledMap} onClick={() => setAngledMap((value) => !value)}><Layers size={19} /></button>
         <button aria-label="Back to campus" title="Back to campus" onClick={() => setCampusSignal((n) => n + 1)}><Compass size={19} /></button>
@@ -183,7 +237,7 @@ export function Experience({ initialDate, initial, initialEvent, mapKey }: { ini
         {selectedGroup && <div className="venue-banner"><span className="eyebrow">SELECTED VENUE</span><strong>{selectedGroup.name}</strong><span>{selectedGroup.events.length} separate {selectedGroup.events.length === 1 ? "event" : "events"} here</span></div>}
         {renderCards(filtered.filter((event) => event.coordinates))}
         {unmapped.length > 0 && <section className="unmapped-section"><h3>Locations not mapped</h3><p>These UW events have no verified map coordinates. Their official listings are still available.</p>{renderCards(unmapped)}</section>}
-        <p className="source-footer">EVENT DATA FROM <a href="https://today.wisc.edu/" target="_blank" rel="noopener noreferrer">UW TODAY ↗</a><br />BUILDING DATA FROM <a href="https://map.wisc.edu/" target="_blank" rel="noopener noreferrer">UW CAMPUS MAP ↗</a><br />Independent student project · Not an official UW service</p>
+      <p className="source-footer">EVENT DATA FROM <a href="https://today.wisc.edu/" target="_blank" rel="noopener noreferrer">UW TODAY ↗</a><br />Independent student project · Not an official UW service</p>
       </div>
       <Dialog><DialogTrigger asChild><button className="add-button" aria-label="Post an event or report"><Plus size={24} /></button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>More ways to share campus life are coming.</DialogTitle></DialogHeader><p>Student events and temporary campus reports are planned for a future release. For now, every listing here comes from UW’s official public calendar.</p></DialogContent></Dialog>
     </section>
@@ -193,22 +247,19 @@ export function Experience({ initialDate, initial, initialEvent, mapKey }: { ini
         {selectedBuilding ? <>
           <button className="building-back" onClick={() => setSelectedBuilding(null)}><ArrowLeft size={15} /> All campus buildings</button>
           <div className="building-detail-icon"><Building2 size={23} /></div>
-          <span className={`building-status building-status-${selectedBuilding.footprintStatus}`}>{selectedBuilding.footprintStatus === "partial" ? "Partial footprint" : selectedBuilding.footprintStatus === "complex" ? "Campus complex" : "UW building"}</span>
           <DialogHeader><DialogTitle>{selectedBuilding.name}</DialogTitle><DialogDescription>{[selectedBuilding.buildingNumber ? `FP&M #${selectedBuilding.buildingNumber}` : null, selectedBuilding.streetAddress].filter(Boolean).join(" · ") || "On the UW–Madison campus"}</DialogDescription></DialogHeader>
-          {selectedBuilding.description && <p className="building-description">{selectedBuilding.description}</p>}
+          <p className="building-description">{selectedBuilding.shortDescription}</p>
           {selectedBuilding.hours && <p className="building-hours"><span>Hours</span>{selectedBuilding.hours}</p>}
-          <a className="building-official-link" href={selectedBuilding.officialMapUrl} target="_blank" rel="noopener noreferrer">Open in official UW campus map <ExternalLink size={15} /></a>
-          <p className="building-attribution">Building information and geometry from the UW–Madison Campus Map.</p>
+          <a className="building-official-link" href={selectedBuilding.officialMapUrl} target="_blank" rel="noopener noreferrer">Open on campus map <ExternalLink size={15} /></a>
         </> : <>
           <DialogHeader><DialogTitle>Explore UW–Madison buildings</DialogTitle><DialogDescription>{buildings ? `${buildings.features.length} mapped UW campus buildings and complexes. Select a result to highlight it on the map.` : buildingError ? "The campus building directory could not be loaded." : "Loading the official campus building directory…"}</DialogDescription></DialogHeader>
-          {!buildingError && <label className="building-search"><Search size={17} aria-hidden="true" /><span className="sr-only">Search campus buildings</span><input autoFocus placeholder="Search by building, number, or address" value={buildingQuery} onChange={(event) => setBuildingQuery(event.target.value)} /></label>}
+          {!buildingError && <label className="building-search"><Search size={17} aria-hidden="true" /><span className="sr-only">Search campus buildings</span><input autoFocus placeholder="Search buildings, places, or uses" value={buildingQuery} onChange={(event) => setBuildingQuery(event.target.value)} /></label>}
           <ul className="building-directory-list" aria-label="UW campus buildings">
             {filteredBuildings.map(({ properties: building }) => <li key={building.mapObjectId}><button className="building-directory-item" onClick={() => selectBuilding(building)}>
-              <span className="building-list-icon"><Building2 size={17} /></span><span className="building-list-copy"><strong>{building.name}</strong><small>{building.buildingNumber ? `FP&M #${building.buildingNumber}` : building.streetAddress || "UW–Madison"}{building.footprintStatus === "partial" ? " · partial footprint" : building.footprintStatus === "complex" ? " · campus complex" : ""}</small></span><MapPin size={15} />
+              <span className="building-list-icon"><Building2 size={17} /></span><span className="building-list-copy"><strong>{building.name}</strong><small>{building.shortDescription}</small></span><MapPin size={15} />
             </button></li>)}
             {buildings && filteredBuildings.length === 0 && <li className="building-empty">No buildings match that search.</li>}
           </ul>
-          <p className="building-attribution">Independent student project · geometry and map details from <a href="https://map.wisc.edu/" target="_blank" rel="noopener noreferrer">UW–Madison Campus Map</a>.</p>
         </>}
       </DialogContent>
     </Dialog>
