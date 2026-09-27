@@ -13,6 +13,10 @@ class JsonValue { constructor(readonly value: unknown) {} }
 function transactionPoolClient(connectionString: string): Sql {
   const url = new URL(connectionString);
   url.port = "6543";
+  // pg-connection-string lets sslmode in DATABASE_URL replace the explicit TLS
+  // options below. Supabase's pooler certificate is not trusted by Node's
+  // default CA set, so keep the encrypted connection without that override.
+  url.searchParams.delete("sslmode");
   const pool = new Pool({
     connectionString: url.toString(), max: 1, idleTimeoutMillis: 5_000,
     connectionTimeoutMillis: 3_000, ssl: { rejectUnauthorized: false },
