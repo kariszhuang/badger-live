@@ -514,6 +514,46 @@ test("mobile report composer opens compactly and expands on text focus", async (
   await expect(page.locator(".map-panel")).toBeVisible();
 });
 
+test("short mobile report composer keeps the text field visible", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile");
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.context().grantPermissions(["geolocation"]);
+  await page.context().setGeolocation({ latitude: 43.075, longitude: -89.405, accuracy: 18 });
+  await page.goto("/?date=2026-09-26");
+  await waitForBuildingMap(page);
+  await page.getByRole("button", { name: "Report here" }).click();
+
+  const report = page.getByRole("dialog");
+  await expect(report).toHaveClass(/is-collapsed/);
+  const compactRatio = await report.evaluate((element) => element.getBoundingClientRect().height / window.innerHeight);
+  expect(compactRatio).toBeGreaterThan(0.5);
+  expect(compactRatio).toBeLessThan(0.6);
+  const description = report.getByLabel("What did you see?");
+  const visibleDescriptionHeight = await description.evaluate((element) => {
+    const input = element.getBoundingClientRect();
+    const sheet = element.closest("[role=dialog]")!.getBoundingClientRect();
+    return Math.min(input.bottom, sheet.bottom) - Math.max(input.top, sheet.top);
+  });
+  expect(visibleDescriptionHeight).toBeGreaterThanOrEqual(60);
+  await expect(description).toHaveCSS("font-size", "16px");
+  await expect(report.getByLabel("Search a campus place")).toHaveCSS("font-size", "16px");
+  await expect(report.locator(".report-dictation-button")).toBeHidden();
+  await expect(report.locator(".report-dictation-privacy")).toBeHidden();
+  await expect(page.locator(".map-panel")).toBeVisible();
+  const widths = await page.evaluate(() => ({ viewport: window.innerWidth, document: document.documentElement.scrollWidth }));
+  expect(widths.document).toBeLessThanOrEqual(widths.viewport);
+
+  await description.click();
+  await expect(report).toHaveClass(/is-expanded/);
+  await expect.poll(async () => report.locator(".report-text-heading").evaluate((element) => {
+    const heading = element.getBoundingClientRect();
+    const content = element.closest(".report-form-content")!.getBoundingClientRect();
+    return Math.min(heading.bottom, content.bottom) - Math.max(heading.top, content.top);
+  })).toBeGreaterThanOrEqual(20);
+  await expect(report.locator(".report-dictation-privacy")).toBeVisible();
+  await expect(report.locator(".report-footer-actions")).toBeVisible();
+});
+
 test("GPS denial expands the composer and exposes manual location choices", async ({ page }) => {
   await page.addInitScript(() => {
     const deniedGeolocation = {

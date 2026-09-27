@@ -387,7 +387,19 @@ export function ReportSheet({ open, onOpenChange, initialText = "", pinCoordinat
           <div className="report-text-heading"><label className="report-section-label" htmlFor="report-description">WHAT DID YOU SEE?</label>{dictation.supported && <button className={`report-dictation-button ${dictation.listening ? "is-listening" : ""}`} type="button" aria-label={dictation.listening ? "Stop voice dictation" : "Start voice dictation"} aria-pressed={dictation.listening} aria-describedby="report-dictation-privacy" disabled={sending} onClick={() => { setComposerExpanded(true); if (dictation.listening) dictation.stop(); else dictation.start(); }}>{dictation.listening ? <MicOff size={15} /> : <Mic size={15} />}{dictation.listening ? "Stop" : "Dictate"}</button>}</div>
           {dictation.supported && <small id="report-dictation-privacy" className="report-dictation-privacy">Your browser&apos;s speech service may process microphone audio to make a transcript. Badger Live receives only the text; it is sent to OpenAI when you press Send.</small>}
           {!dictation.supported && <small className="report-dictation-privacy">Voice dictation isn&apos;t available in this browser. You can type or use your keyboard&apos;s dictation.</small>}
-          <textarea id="report-description" rows={4} maxLength={2000} value={text} onFocus={() => setComposerExpanded(true)} onChange={(event) => { setText(event.target.value); setDuplicates([]); setDecisions([]); }} placeholder="For example: Very icy near the east Van Vleck ramp" required />
+          <textarea id="report-description" rows={4} maxLength={2000} value={text} onFocus={(event) => {
+            setComposerExpanded(true);
+            if (window.innerHeight <= 700) {
+              const textarea = event.currentTarget;
+              window.requestAnimationFrame(() => {
+                const content = textarea.closest<HTMLElement>(".report-form-content");
+                const heading = content?.querySelector<HTMLElement>(".report-text-heading");
+                if (!content || !heading) return;
+                const headingOffset = heading.getBoundingClientRect().top - content.getBoundingClientRect().top + content.scrollTop;
+                content.scrollTop = Math.min(content.scrollTop, headingOffset);
+              });
+            }
+          }} onChange={(event) => { setText(event.target.value); setDuplicates([]); setDecisions([]); }} placeholder="For example: Very icy near the east Van Vleck ramp" required />
           {dictation.listening && <small className="report-dictation-status" role="status">{dictation.interimText ? `Hearing: ${dictation.interimText}` : "Listening… Press Stop when you’re done."}</small>}
           {dictation.error && <small className="report-dictation-error" role="status">{dictation.error}</small>}
           <small>{text.length}/2,000 · Physical campus conditions only</small>
