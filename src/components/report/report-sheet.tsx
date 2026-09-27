@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { Camera, Check, LocateFixed, MapPin, Navigation, Pencil, RotateCcw, Search, ShieldAlert, X } from "lucide-react";
+import { Camera, Check, LocateFixed, MapPin, Mic, MicOff, Navigation, Pencil, RotateCcw, Search, ShieldAlert, X } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { hazardKinds, type CampusPlace, type DuplicateCandidate, type HazardKind, type HazardReport, type ReportLocation } from "@/lib/report/types";
+import { useReportDictation } from "@/lib/report/use-report-dictation";
 import { getVisitorId, newSubmissionId, saveUndoCapabilities } from "@/lib/report/visitor-id";
 
 type DuplicateIssue = { itemIndex: number; title: string; candidates: DuplicateCandidate[] };
@@ -34,6 +35,13 @@ function errorText(value: unknown, fallback: string) {
 
 function isTimeFollowup(question: string) {
   return /\bwhen did you see|when did you observe|what time\b/i.test(question);
+}
+
+function appendDictatedText(current: string, transcript: string) {
+  const addition = transcript.trim();
+  if (!addition) return current;
+  const existing = current.trimEnd();
+  return `${existing}${existing ? " " : ""}${addition}`.slice(0, 2000);
 }
 
 function receiptTitle(receipt: PostedResult) {
@@ -130,6 +138,12 @@ export function ReportSheet({ open, onOpenChange, initialText = "", pinCoordinat
   const [savingEdit, setSavingEdit] = useState(false);
   const [editError, setEditError] = useState("");
   const [editNotice, setEditNotice] = useState("");
+  const appendTranscript = useCallback((transcript: string) => {
+    setText((current) => appendDictatedText(current, transcript));
+    setDuplicates([]);
+    setDecisions([]);
+  }, []);
+  const dictation = useReportDictation({ enabled: open && !receipt, onTranscript: appendTranscript });
   const generation = useRef(0);
   const gpsCleanup = useRef<(() => void) | null>(null);
   const requestFingerprint = useRef("");
@@ -218,6 +232,7 @@ export function ReportSheet({ open, onOpenChange, initialText = "", pinCoordinat
 
   const send = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    dictation.cancel();
     setError("");
     setFollowup("");
     setSending(true);
@@ -323,7 +338,7 @@ export function ReportSheet({ open, onOpenChange, initialText = "", pinCoordinat
   const needsTime = isTimeFollowup(followup);
   const unresolvedCount = duplicates.filter((issue) => !decisions.some((decision) => decision.itemIndex === issue.itemIndex)).length;
 
-  return <Dialog open={open} onOpenChange={onOpenChange}>
+  return <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) dictation.cancel(); onOpenChange(nextOpen); }}>
     <DialogContent className="report-dialog">
       <DialogHeader className="report-dialog-header">
         <span className="report-kicker"><MapPin size={14} /> UNVERIFIED CAMPUS OBSERVATION</span>
@@ -357,14 +372,22 @@ export function ReportSheet({ open, onOpenChange, initialText = "", pinCoordinat
           {!pinCoordinates && selectedPlace && <div className="report-selected-place"><MapPin size={15} /><span>{selectedPlace.name}</span><button type="button" onClick={() => { setLocation(undefined); setSelectedPlace(null); setLocationMessage("Choose a map point or let a named place in your description resolve the location."); }} aria-label="Clear selected place"><X size={15} /></button></div>}
           {pinCoordinates && <div className="report-selected-place"><MapPin size={15} /><span>Map point · approximate</span><button type="button" onClick={() => { onClearPin(); setLocationMessage("Choose a map point or search for a campus place."); }} aria-label="Clear map point"><X size={15} /></button></div>}
           {!pinCoordinates && location?.method === "gps" && location.accuracyM > 80 && <p className="report-location-warning">GPS is too broad for a precise campus report. Search for a place or choose a point on the map.</p>}
-          <div className="report-location-actions"><button className="report-secondary-button" type="button" onClick={onChooseMapPoint}><MapPin size={15} />Choose on map</button><label className="report-place-search"><Search size={15} /><input aria-label="Search a campus place" placeholder="Search campus places" value={placeQuery} onChange={(event) => setPlaceQuery(event.target.value)} /></label></div>
+          <div className="report-location-actions"><button className="report-secondary-button" type="button" onClick={() => { dictation.cancel(); onChooseMapPoint(); }}><MapPin size={15} />Choose on map</button><label className="report-place-search"><Search size={15} /><input aria-label="Search a campus place" placeholder="Search campus places" value={placeQuery} onChange={(event) => setPlaceQuery(event.target.value)} /></label></div>
           {visiblePlaceResults.length > 0 && <div className="report-place-results" role="listbox" aria-label="Campus place results">{visiblePlaceResults.map((place) => <button type="button" role="option" aria-selected={false} key={place.id} onClick={() => choosePlace(place)}><span>{place.name}</span><small>{place.kind.replace("_", " ")}</small></button>)}</div>}
           {placeQuery.trim().length >= 2 && placeSearchMessage && <p className="report-place-status" role="status">{placeSearchMessage}</p>}
           {!effectiveLocation && !selectedPlace && <p className="report-location-hint">You can describe a trusted campus place by name instead. GPS is requested only after you open this form.</p>}
         </div>
 
         {followup && <div className="report-followup" role="status"><ShieldAlert size={17} /><div><strong>One detail is needed</strong><span>{followup}</span></div></div>}
-        <label className="report-text-label" htmlFor="report-description"><span className="report-section-label">WHAT DID YOU SEE?</span><textarea id="report-description" rows={4} maxLength={2000} value={text} onChange={(event) => { setText(event.target.value); setDuplicates([]); setDecisions([]); }} placeholder="For example: Very icy near the east Van Vleck ramp" required /><small>{text.length}/2,000 · Physical campus conditions only</small></label>
+        <div className="report-text-label">
+          <div className="report-text-heading"><label className="report-section-label" htmlFor="report-description">WHAT DID YOU SEE?</label>{dictation.supported && <button className={`report-dictation-button ${dictation.listening ? "is-listening" : ""}`} type="button" aria-label={dictation.listening ? "Stop voice dictation" : "Start voice dictation"} aria-pressed={dictation.listening} aria-describedby="report-dictation-privacy" disabled={sending} onClick={() => dictation.listening ? dictation.stop() : dictation.start()}>{dictation.listening ? <MicOff size={15} /> : <Mic size={15} />}{dictation.listening ? "Stop" : "Dictate"}</button>}</div>
+          {dictation.supported && <small id="report-dictation-privacy" className="report-dictation-privacy">Your browser&apos;s speech service may process microphone audio to make a transcript. Badger Live receives only the text; it is sent to OpenAI when you press Send.</small>}
+          {!dictation.supported && <small className="report-dictation-privacy">Voice dictation isn&apos;t available in this browser. You can type or use your keyboard&apos;s dictation.</small>}
+          <textarea id="report-description" rows={4} maxLength={2000} value={text} onChange={(event) => { setText(event.target.value); setDuplicates([]); setDecisions([]); }} placeholder="For example: Very icy near the east Van Vleck ramp" required />
+          {dictation.listening && <small className="report-dictation-status" role="status">{dictation.interimText ? `Hearing: ${dictation.interimText}` : "Listening… Press Stop when you’re done."}</small>}
+          {dictation.error && <small className="report-dictation-error" role="status">{dictation.error}</small>}
+          <small>{text.length}/2,000 · Physical campus conditions only</small>
+        </div>
         {followup && needsTime && <label className="report-time-followup"><span>When did you see it?</span><input value={followupAnswer} onChange={(event) => setFollowupAnswer(event.target.value)} placeholder="For example: about 20 minutes ago" required /></label>}
         <div className="report-photo-row"><label className="report-secondary-button report-photo-button"><Camera size={15} />Add private photo<input type="file" accept="image/*" capture="environment" onChange={(event) => void handlePhoto(event)} /></label>{photo && <span><Check size={13} />Photo resized and private <button type="button" onClick={() => setPhoto(null)} aria-label="Remove photo"><X size={14} /></button></span>}</div>
         {photoError && <p className="report-error" role="alert">{photoError}</p>}
@@ -377,7 +400,7 @@ export function ReportSheet({ open, onOpenChange, initialText = "", pinCoordinat
 
         {error && <p className="report-error" role="alert">{error}</p>}
         <p className="report-privacy-note">Your text and optional photo are sent to OpenAI for analysis. Badger Live does not save them or show them publicly; only a templated issue, approximate location, and observation time are published. Reports are unverified.</p>
-        <div className="report-footer-actions"><button type="button" className="report-cancel-button" onClick={() => onOpenChange(false)}>Cancel</button><button className="report-primary-button" type="submit" disabled={sending || !text.trim() || (duplicates.length > 0 && unresolvedCount > 0) || Boolean(followup && needsTime && !followupAnswer.trim())}>{sending ? <><span className="report-spinner" />Checking and sending…</> : duplicates.length ? "Confirm choices & send" : "Send report"}<Navigation size={15} /></button></div>
+        <div className="report-footer-actions"><button type="button" className="report-cancel-button" onClick={() => onOpenChange(false)}>Cancel</button><button className="report-primary-button" type="submit" disabled={sending || dictation.listening || !text.trim() || (duplicates.length > 0 && unresolvedCount > 0) || Boolean(followup && needsTime && !followupAnswer.trim())}>{sending ? <><span className="report-spinner" />Checking and sending…</> : duplicates.length ? "Confirm choices & send" : "Send report"}<Navigation size={15} /></button></div>
       </form>}
     </DialogContent>
   </Dialog>;

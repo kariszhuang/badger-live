@@ -31,6 +31,7 @@ Supabase Studio is available at `http://127.0.0.1:54323`. The app does not silen
 - No accounts, login, user profiles, moderator console, human review queue, private messaging, or public report photos.
 - Report mode is an explicit publish action. Ask Badger is read-only until a user chooses **Post this as a report**.
 - Only templated, non-identifying physical-condition reports can reach the public map. Original text and private images are processed transiently and are not saved or returned publicly.
+- Optional voice dictation starts only when tapped. The browser's speech service may process microphone audio; Badger Live receives transcript text, which is sent to OpenAI only when the user taps **Send report**.
 - Report text, optional photos, Ask Badger questions, and selected campus source data are sent to OpenAI for AI processing. Badger Live does not save report text/photos or assistant questions. Public reports contain only constrained issue details and approximate location.
 - Community observations are always unverified. Anonymous counts are not unique or trustworthy people, and no clear result means a place is safe or accessible.
 - Verified official event and help links remain separate from community observations. UWPD blotter entries are historical source records, not live alerts or findings of guilt.

@@ -477,6 +477,68 @@ test("report composer can use a map pin without granting GPS access", async ({ p
   await pinnedReport.getByRole("button", { name: "Cancel" }).click();
 });
 
+test("voice dictation is opt-in and sends transcript text only after Send", async ({ page }) => {
+  const submissions: Array<Record<string, unknown>> = [];
+  await page.addInitScript(() => {
+    class FakeSpeechRecognition {
+      continuous = false;
+      interimResults = false;
+      lang = "";
+      onresult: ((event: { resultIndex: number; results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }> }) => void) | null = null;
+      onerror: ((event: { error: string }) => void) | null = null;
+      onend: (() => void) | null = null;
+      start() {
+        window.setTimeout(() => {
+          this.onresult?.({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: "Icy near Van Vleck." } }] });
+          this.onend?.();
+        }, 0);
+      }
+      stop() { this.onend?.(); }
+      abort() { this.onend?.(); }
+    }
+    Object.defineProperty(window, "SpeechRecognition", { configurable: true, value: FakeSpeechRecognition });
+  });
+  await page.route("**/api/report/publish", async (route) => {
+    submissions.push(route.request().postDataJSON() as Record<string, unknown>);
+    await route.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify({ outcome: "not_published", message: "Fixture stopped before publication." }) });
+  });
+
+  await page.goto("/?date=2026-09-26");
+  await page.getByRole("button", { name: "Report here" }).click();
+  const report = page.getByRole("dialog");
+  const dictate = report.getByRole("button", { name: "Start voice dictation" });
+  await expect(dictate).toBeVisible();
+  await expect(report.getByText(/browser's speech service may process microphone audio/i)).toBeVisible();
+  expect(submissions).toHaveLength(0);
+
+  await dictate.click();
+  const description = report.getByLabel("What did you see?");
+  await expect(description).toHaveValue("Icy near Van Vleck.");
+  await expect(report.getByRole("button", { name: "Send report" })).toBeEnabled();
+  expect(submissions).toHaveLength(0);
+
+  await report.getByRole("button", { name: "Send report" }).click();
+  await expect(report.getByRole("alert")).toContainText("Fixture stopped before publication.");
+  expect(submissions).toHaveLength(1);
+  expect(submissions[0].text).toBe("Icy near Van Vleck.");
+  expect(submissions[0]).not.toHaveProperty("audio");
+});
+
+test("unsupported browsers keep the report composer usable with a dictation fallback", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "SpeechRecognition", { configurable: true, value: undefined });
+    Object.defineProperty(window, "webkitSpeechRecognition", { configurable: true, value: undefined });
+  });
+  await page.goto("/?date=2026-09-26");
+  await page.getByRole("button", { name: "Report here" }).click();
+
+  const report = page.getByRole("dialog");
+  await expect(report.getByText(/Voice dictation isn.t available in this browser/)).toBeVisible();
+  await expect(report.getByRole("button", { name: /dictation/i })).toHaveCount(0);
+  await report.getByLabel("What did you see?").fill("Icy near Van Vleck.");
+  await expect(report.getByRole("button", { name: "Send report" })).toBeEnabled();
+});
+
 test("report time follow-up keeps the draft and requires an answer before retry", async ({ page }) => {
   const submissions: Array<Record<string, unknown>> = [];
   await page.route("**/api/report/publish", async (route) => {
