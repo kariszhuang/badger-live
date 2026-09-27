@@ -22,6 +22,7 @@ type ResolvedIssue = {
   observedAt: string;
   candidates: Awaited<ReturnType<typeof findDuplicateCandidates>>;
 };
+type ResolvedIssueInput = Omit<ResolvedIssue, "candidates">;
 
 function haversineMeters(left: [number, number], right: [number, number]) {
   const toRadians = (value: number) => value * Math.PI / 180;
@@ -118,7 +119,7 @@ export async function POST(request: NextRequest) {
 
     const now = Date.now();
     const messageHasPastReference = explicitPastReference(input.text);
-    const issues: ResolvedIssue[] = [];
+    const resolvedIssues: ResolvedIssueInput[] = [];
     for (const [itemIndex, issue] of plan.issues.entries()) {
       const issueHasPastReference = explicitPastReference(issue.evidence || "")
         || (plan.issues.length === 1 && messageHasPastReference);
@@ -127,7 +128,7 @@ export async function POST(request: NextRequest) {
       }
       const location = resolveIssueLocation({
         issue,
-        previous: issues.map((previousIssue) => ({ coordinates: previousIssue.coordinates, placeId: previousIssue.placeId, locationMethod: previousIssue.locationMethod, accuracy: previousIssue.locationAccuracyM })),
+        previous: resolvedIssues.map((previousIssue) => ({ coordinates: previousIssue.coordinates, placeId: previousIssue.placeId, locationMethod: previousIssue.locationMethod, accuracy: previousIssue.locationAccuracyM })),
         selectedLocation: input.location,
         places,
         namedPlaces,
@@ -143,7 +144,7 @@ export async function POST(request: NextRequest) {
       if (now - observedAt.valueOf() > hazardFreshnessMs[issue.kind]) {
         return jsonResponse({ outcome: "not_published", message: "That observation is outside the current reporting window for this condition. If it is still present, start a new report based on what you see now." }, 422);
       }
-      const resolved = {
+      resolvedIssues.push({
         itemIndex,
         kind: issue.kind,
         coordinates: location.value.coordinates,
@@ -152,10 +153,20 @@ export async function POST(request: NextRequest) {
         locationAccuracyM: location.value.accuracy,
         severity: deriveReportedSeverity(issue.evidence, input.text),
         observedAt: observedAt.toISOString(),
-        candidates: await findDuplicateCandidates({ kind: issue.kind, longitude: location.value.coordinates[0], latitude: location.value.coordinates[1], placeId: location.value.placeId }),
-      } satisfies ResolvedIssue;
-      issues.push(resolved);
+      });
     }
+
+    // Location resolution is ordered because relative issues inherit earlier items;
+    // duplicate searches are independent reads and can run together afterward.
+    const issues: ResolvedIssue[] = await Promise.all(resolvedIssues.map(async (issue) => ({
+      ...issue,
+      candidates: await findDuplicateCandidates({
+        kind: issue.kind,
+        longitude: issue.coordinates[0],
+        latitude: issue.coordinates[1],
+        placeId: issue.placeId,
+      }),
+    })));
 
     const decisions = new Map((input.duplicateDecisions || []).map((decision) => [decision.itemIndex, decision]));
     const unresolvedDuplicates: Array<{ itemIndex: number; title: string; candidates: ResolvedIssue["candidates"] }> = [];
