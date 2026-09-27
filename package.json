@@ -13,12 +13,15 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "eval:report-prompt": "bun run scripts/evaluate-report-prompts.ts",
+    "audit:client-bundles": "bun run scripts/audit-client-bundles.ts",
     "db:start": "supabase start",
     "db:stop": "supabase stop",
     "db:reset": "supabase db reset",
     "db:status": "supabase status",
     "sync:events": "bun run scripts/sync-events.ts",
-    "sync:buildings": "bun run scripts/sync-campus-buildings.ts"
+    "sync:buildings": "bun run scripts/sync-campus-buildings.ts",
+    "sync:places": "bun run scripts/sync-campus-places.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

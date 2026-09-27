@@ -8,21 +8,17 @@ import {
   DoorOpen,
   Hammer,
   HandCoins,
-  Lightbulb,
   Music2,
   Palette,
   ShieldAlert,
-  Snowflake,
   Sprout,
   Trophy,
   Utensils,
   UsersRound,
-  Wrench,
   type LucideIcon,
 } from "lucide-react";
 import type { CrimeCategory } from "@/lib/crime-model";
 import type { EventCategory, FilterCategory } from "@/lib/events";
-import type { CommunityReportCategory } from "@/lib/safety";
 
 const eventIcons: Record<FilterCategory, LucideIcon> = {
   all: CalendarDays,
@@ -44,13 +40,6 @@ const crimeIcons: Record<Exclude<CrimeCategory, "theft">, LucideIcon> = {
   weapons: Crosshair,
 };
 
-const safetyIcons: Record<CommunityReportCategory, LucideIcon> = {
-  lighting: Lightbulb,
-  "blocked-access": DoorOpen,
-  "slippery-surface": Snowflake,
-  "facility-hazard": Wrench,
-};
-
 function Icon({ icon: Glyph, size = 16 }: { icon: LucideIcon; size?: number }) {
   return <Glyph aria-hidden="true" focusable="false" size={size} strokeWidth={2} />;
 }
@@ -63,10 +52,6 @@ export function EventCategoryIcon({ category, size }: { category: FilterCategory
 export function CrimeCategoryIcon({ category, size }: { category: CrimeCategory; size?: number }) {
   if (category === "theft") return <ThiefIcon size={size ?? 16} />;
   return <Icon icon={crimeIcons[category]} size={size} />;
-}
-
-export function SafetyCategoryIcon({ category, size }: { category: CommunityReportCategory; size?: number }) {
-  return <Icon icon={safetyIcons[category]} size={size} />;
 }
 
 function ThiefIcon({ size }: { size: number }) {

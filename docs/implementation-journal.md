@@ -1,0 +1,98 @@
+# Badger Live implementation journal
+
+This is the working record for implementing [the master plan](./Badger_Live_Complete_Master_Plan.md). Keep it current as code lands so the next person can tell what is real, how the parts fit together, and what still needs a project-side action.
+
+## Product boundaries
+
+- Badger Live is an independent UW–Madison campus discovery prototype, not an emergency service or an official UW service.
+- There is no login, profile, moderator console, moderation queue, private messaging, or public photo gallery in this release.
+- Community publishing is limited to ordinary, non-identifying physical conditions. Community observations stay visibly unverified; an empty map never means a place is safe or accessible.
+- Events and the UWPD daily blotter are read-only, source-linked official data. Blotter entries are historical records, not live alerts or findings of guilt.
+- Browser location is requested only after a user action. A selected map point or trusted campus place remains available when GPS is denied or imprecise.
+- Optional speech dictation starts only after a separate user tap. The browser's speech service may process microphone audio; Badger Live receives transcript text, and report submission still requires Send.
+
+## Existing foundation to reuse
+
+- Next.js 16 App Router, TypeScript, Bun, Vitest, Playwright, and Supabase CLI.
+- MapLibre full-screen map, checked-in UW campus building geometry, and the existing responsive discovery rail/sheet.
+- UW Today event fetch, normalization, cache, and date/category filters.
+- The server-side, source-linked UWPD historical blotter integration.
+- Local Supabase is available for disposable migration and database checks. The hosted project is not linked in the local Supabase CLI.
+
+## Target architecture
+
+| Area | Responsibility |
+|---|---|
+| `src/lib/report/` | Input schemas, report categories, deterministic content/location policy, public DTOs, server-only persistence and rate limits. |
+| `src/app/api/report/` | One report submission transaction, observational rechecks, limited category correction and undo, and inaccurate/outdated flags. |
+| `src/app/api/map/` and `src/app/api/places/` | Bounded public map queries and canonical campus-place search. |
+| `src/app/api/assistant/` | Read-only source-grounded campus answers; no implicit publish capability. |
+| `src/app/api/routes/plan/` | Trusted-place walking directions proxy with rate limits and nearby-report inspection. |
+| `supabase/migrations/` | PostGIS-safe public projections, private operational tables, RLS, atomic RPCs, and minimal Broadcast invalidation payloads. |
+| `src/components/` | Map layer controls, report composer and receipt, location picker, assistant and walking-route sheets, hazard markers, and source-linked event cards. |
+
+All write routes fail closed when required database, HMAC, model/moderation, or write-enable settings are absent. The browser receives only public Supabase configuration. Raw report text and original images are not persisted or included in public data.
+
+## Work ledger
+
+| Slice | Status | Notes |
+|---|---|---|
+| Repository audit and branch | Complete | Work is on `feature/reporting`; the pre-existing `scripts/sync-events.ts` edit and user-provided master plan are preserved. |
+| Safe report domain and database | Implemented locally | Sanitized PostGIS tables, private operational schema, origin/body/location checks, persistent HMAC limits, atomic idempotent RPC, version-checked category correction, undo, flags, freshness windows, rechecks, manual hide, and retention migrations. Hosted project is untouched. |
+| Map/report/assistant UI | Implemented; reviewed in built-in browser | Location-first composer with GPS/pin/place options, privacy-safe image preparation, safe map layer, visible uncertainty/lifecycle, duplicate choices, receipt, and read-only Ask Badger sheet. Tested as a narrow mobile viewport with real local place search. |
+| AI intake, Ask Badger, and event tools | Implemented; live model unverified | Answers use date-filtered UW Today data, safe observations, campus places, optional historical blotter sources, strict structured output, and source-ID allowlisting. The report prompt defines one highest-priority question for missing location, vague past timing, or an unclear physical condition; the publish route gates those gaps before duplicate lookup or any write. Offline prompt-contract tests pass. |
+| Public Broadcast and resilience | Implemented and locally verified | Broadcast contains only ID/version/kind; clients debounce then refresh canonical map data and reconcile on focus, visibility, subscription, and timed polling. The local trigger and invalidation parser were checked. |
+| Import/cron and route planning | Implemented; provider setup required | Event import and expiry have bearer-protected endpoints and production schedules. `/api/routes/inspect` handles bounded supplied geometry; the planner resolves two trusted place IDs, requests walking geometry server-side when `OPENROUTESERVICE_API_KEY` is set, and inspects nearby active community reports. The client never submits GPS to the provider. Local browser review verified place search and the no-key message; mocked API/browser tests cover warning presentation. A live OpenRouteService response remains unverified. |
+| Documentation and demo readiness | Complete for local implementation | README, deployment setup, reporting architecture, prompt contract tests, and this journal document the architecture, local workflow, operational boundaries, and hosted setup still required. |
+
+## Acceptance audit follow-up
+
+- Location resolution is deterministic and covered independently from the model: an explicitly selected map pin wins, then a trusted named place, a valid prior issue for relative wording, an explicitly selected trusted place, and finally fresh GPS only when the issue says `here`. Missing or unresolved location no longer silently inherits the reporter's GPS point.
+- Report intake sends at most 20 text-matched trusted places plus the selected place to the model, with at most 8 aliases per place. The full cached catalog stays server-side.
+- The safety sheet now has source-linked UWPD and University Housing lost-property guidance. The deployment guide has an exact-ID/exact-title procedure for deleting demo rows safely.
+- Route-level tests exercise one-request multi-issue publication, relative issue location inheritance, location follow-up instead of GPS fallback, pin/place precedence, person-allegation rejection before model calls, and duplicate choice without an early write. Pure location tests cover six precedence and fallback cases.
+- The single-send product flow deliberately runs semantic intake inside `/api/report/publish` so one explicit Send can screen, interpret, deduplicate, and commit atomically. `/api/report/interpret` remains a read-only Ask-mode extraction helper; it is not an extra report-composer round trip.
+- Identical completed publish retries look up the saved receipt before moderation, model intake, or duplicate searches. The digest binds the payload to the server HMAC for the requesting browser/network, so a changed request or different fingerprint cannot retrieve the original receipt or undo capability.
+- Capability token signing and deterministic report IDs now share the same minimum 32-byte secret check; a missing or short key cannot produce a token that appears valid but cannot authorize undo.
+- Report and assistant sheets now disclose that their inputs and selected campus data are sent to OpenAI; local persistence/public display limits are stated in the UI and README.
+- The production `interpretReport` request is shared with a developer-only live prompt-evaluation CLI. Ten synthetic scenarios cover multi-issue extraction, location precedence, missing-issue/time/location follow-ups, Ask mode, emergency handling, and instruction injection. The script cannot publish or call the database; its scorer has offline unit tests.
+- The intake prompt contract now distinguishes vague past timing from parseable relative dates and tells the model to return no guessed issue when an actionable condition is missing. The server converts missing `time` and `issue` flags into fixed, single-question follow-ups before duplicate lookup or publication; route tests assert neither database action runs, including when the model returns no issues. Past-time validation is scoped per issue so a historic condition does not force a date question for a separate current condition in the same message.
+- The publish route resolves issue locations in order so relative references inherit correctly, then runs the independent PostGIS duplicate searches concurrently (up to the schema limit of eight issues) before the single atomic write.
+- Publish receipts now report new rows and counted rechecks separately. Choosing **Same issue** no longer produces a misleading `0 reports posted` message, and the receipt only promises Undo when it has a valid new-report capability.
+- A fresh new-report receipt now offers **Edit category** beside **Undo**. The version-checked database function changes only the category enum and safe templated title, and only while the report is active, has one observation, and is under 30 minutes old. The browser sends its original local capability plus the selected category and expected version; raw text and photo are never part of the edit request. Acceptance scenario 19 passed API unit tests, rollback-only local Postgres checks, and mocked desktop/mobile browser interaction. A focused rerun also confirmed the receipt and edit controls stay inside both desktop and mobile viewports without horizontal overflow.
+- The report sheet retains the original draft, moves a time answer into its visible text before retrying, and combines both in the next explicit Send. Mocked built-in-browser checks verified the answer is required, included in the request, and still visible after a non-publication response on desktop and mobile.
+- Added `bun run audit:client-bundles` to load environment files using Next.js precedence and scan browser-facing build assets and prerendered responses for raw configured server-only values. It reports only variable names, never values, and requires the same build environment to have the relevant secrets configured. Encoded or transformed values are outside this check's scope.
+- Route geometry is accepted only when it has 2–5,000 coordinates, stays inside campus map bounds, and is at most 10 km. `/api/routes/plan` resolves catalog IDs server-side and returns a clear missing-provider error instead of a fabricated path. The map creates its route source and line layers only after receiving a usable candidate, which keeps map startup and campus-building setup independent.
+
+## Verification ledger
+
+Verification on the current branch:
+
+- On the current changes, `bun run lint`, `BADGER_NEXT_DIST_DIR=.next-e2e bun run typecheck`, and `bun run test` (24 files / 112 tests) passed; the suite includes client-bundle audit regressions, edit capability/version validation, API-level idempotent retry, separate new-report/recheck receipt counts, critical-follow-up route cases, per-issue time handling, prompt evaluation contracts, and speech-recognition lifecycle cases. `BADGER_NEXT_DIST_DIR=.next-e2e bun run build` also passed; the separate ignored output directory kept the pre-existing local dev server's `.next` cache intact.
+- The client-bundle audit passed on 131 browser-facing build assets. Production mode had no server-only comparison values configured; development mode loaded and checked one server-only value. The automated synthetic leak case correctly fails with exit code 1 and names `DATABASE_URL` without printing its configured value. This raw-string scan cannot detect encoded or transformed values.
+- All five migrations applied successfully to the disposable local Supabase instance. The expiry job is registered as `badger-live-expire-hazards` on `*/10 * * * *`. Manual database checks covered atomic two-item publish, idempotent retry, denied anonymous writes/private access, minimal trigger payload, and category-edit success/rejection inside a rollback-only transaction. Function privileges confirm that only `service_role` can execute the category-edit function.
+- Prompt tests check guardrail text and source contracts only; no OpenAI API key/model was present, so no live GPT-6 Luna trial has run.
+- `bun run eval:report-prompt -- --repeats 3` is ready for live GPT-6 Luna evaluation. It was invoked after adding missing-issue and vague-time cases, but no `OPENAI_API_KEY` or `OPENAI_REPORT_MODEL` is configured; the CLI returned its explicit no-request status before making any network call. See [the prompt evaluation record](./prompt-evaluation.md).
+- `bun run db:status`: local Supabase is running; its CLI reports no linked hosted project.
+- Built-in browser review at 390×844 covered the live campus map and building footprints, route place search and the safe no-provider-key message, plus the Ask Badger sheet and quick-question affordance. No browser GPS permission was granted. MapTiler's style emitted a missing `transportation:road_` image warning; the base map, event markers, and building footprints rendered.
+- Additional built-in browser review on the desktop map verified the report composer, graceful GPS denial, map-pin selection, the new OpenAI data-use notice, and Ask Badger's read-only/privacy copy. Place search on the already-running local Next server returned 503 because its inherited `DATABASE_URL` in `.env.development.local` points to a remote host that is unavailable. No write endpoint was called; further DB-backed manual checks were stopped pending an isolated local-DB app configuration.
+- Follow-up local production-preview review used an explicit disposable Postgres URL with report writes disabled. The checked-in catalog synced 219 trusted buildings; the built-in browser rendered the desktop events map, campus footprints, discovery panel, and both report/assistant controls. A read-only API check returned Van Vleck Hall from place search and an empty safe hazard result. No GPS permission or write request was used.
+- A fresh local production build preview rendered the campus event map and its official event list. Visual browser checks covered Ask Badger's read-only/privacy copy and emergency warning, quick-question field fill (without submitting), and the linked official safety/help sheet. No report was published and no assistant question was submitted.
+- Current full Playwright run: `BADGER_NEXT_DIST_DIR=.next-e2e REPORT_WRITES_ENABLED=false BADGER_E2E_PORT=3229 bun run test:e2e --workers=1` passed 69 tests with 5 expected desktop-only skips (74 total). It covers the standard and short-screen composers, focus alignment, map-pin return, GPS-denial fallback, voice dictation, time follow-up, same-issue receipts, category correction, route planning, map, and building details on desktop and mobile. A prior run exposed that the compact sheet hid the Cancel footer after map-pin selection; deriving expanded state from the selected pin fixed the flow. The 320×568 case uses a 55% compact sheet and checks the text field, visible heading after focus, and dictation privacy disclosure. Running this MapLibre-heavy suite with more workers can starve browser evaluation and cause timeout noise; use one worker for a stable acceptance run.
+- The rebuilt production preview was reviewed in the Codex in-app browser at a 509×827 viewport. The report sheet showed the microphone privacy notice, graceful GPS denial, and text/map/place fallbacks; the composer had no horizontal overflow. No location or microphone permission was granted, no report was submitted, and the actual browser speech service was not exercised.
+- Final report-composer review used the Codex in-app browser at 320×568, 390×844, and 1440×900 against the `.next-e2e` production preview with report writes disabled. The standard mobile sheet measured about 46% of the viewport; at 320×568 it adapts to 55% and leaves 64px of the textarea visible. Focusing expands the short-screen composer while keeping its heading and dictation disclosure in the form scroll area. Expanding location options while GPS was pending showed map and place choices plus the Send footer; after GPS timed out, the sheet expanded automatically without stale permission copy. On desktop the map and event rail remained visible behind the centered sheet. Read-only measurements showed no horizontal overflow; the 760px standard-mobile and 511px short-mobile expanded sheets kept their footers inside the viewport, and the desktop form body fit without scrolling with its footer inside the 900px viewport. No GPS or microphone permission was granted, and no report was submitted. Physical-device keyboard and safe-area behavior still need checking.
+- After the final draft-retention change, the focused time-follow-up test also passed on desktop and mobile (`BADGER_E2E_PORT=3202`, 2 tests); the same behavior is included in the current full suite.
+- The first full run after adding route layers exposed that empty route layers created during map startup prevented campus-building readiness. Creating those layers only when a candidate route exists fixed the issue; focused desktop/mobile checks and the subsequent complete suite passed.
+- The local database path and browser code are verified, but a two-device staging session, a live OpenAI request, actual phone location behavior, and hosted deployment remain unverified and must be checked with project credentials before enabling writes.
+- A read-only check of `https://badgerlive.vercel.app/` on 2026-09-27 showed the deployed Events/Crime interface without the local **Report here** or **Ask Badger** controls. The local feature branch has not been deployed; no hosted settings or data were changed.
+
+Before each implementation commit, rerun the repository-required lint, typecheck, unit tests, and build checks. Do not include unrelated pre-existing user edits in those commits.
+
+See the [acceptance matrix](./acceptance-matrix.md) for scenario-by-scenario evidence and external checks still outstanding.
+
+## External setup still to verify
+
+- Provide an OpenAI API key and verify the documented `gpt-6-luna` model is enabled for the intended project. The source allows `OPENAI_REPORT_MODEL` to be configured rather than hard-coding the model. Until a live call is run, prompt behavior is contract-tested but model behavior is not verified.
+- The official GPT-6 Luna model page lists Responses, image input, and structured outputs, which supports the selected integration shape; it does not prove the intended API project has access or that this prompt behaves well. See [prompt evaluation](./prompt-evaluation.md).
+- Confirm server-only HMAC keys, a production database URL, rate-limit backing, public MapTiler origin restrictions, and the write kill switch before enabling public submissions.
+- Hosted Supabase migrations, Vercel variables, and production deployment have not been changed by this implementation work.

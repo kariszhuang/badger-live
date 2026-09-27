@@ -48,9 +48,11 @@ test("official blotter mode groups exact campus places and keeps generic residen
     await expect(count).toBeVisible();
     await expect(count).toHaveCSS("position", "absolute");
     await expect.poll(async () => {
-      const markerBox = await marker.locator(".crime-map-marker").boundingBox();
-      const countBox = await count.boundingBox();
-      return markerBox && countBox ? Math.abs(countBox.x + countBox.width / 2 - markerBox.x - markerBox.width / 2) : 99;
+      return marker.evaluate((element) => {
+        const markerBox = element.querySelector(".crime-map-marker")?.getBoundingClientRect();
+        const countBox = element.querySelector(".crime-map-marker-count")?.getBoundingClientRect();
+        return markerBox && countBox ? Math.abs(countBox.x + countBox.width / 2 - markerBox.x - markerBox.width / 2) : 99;
+      });
     }).toBeLessThan(1);
     await page.getByRole("button", { name: "Show 3 reports" }).click();
     await expect(page.locator(".crime-sheet-location").filter({ hasText: "Residence Hall" })).toBeVisible();
@@ -105,7 +107,7 @@ test("mobile location sheet sizes to its content and keeps the selected marker v
   await expect(sheet).toHaveClass(/sheet-closed/);
   await marker.click();
   await expect(sheet).toHaveClass(/sheet-half/);
-  await expect.poll(async () => sheet.evaluate((element) => element.getBoundingClientRect().height)).toBeLessThan(0.56 * 844);
+  await expect.poll(async () => sheet.evaluate((element) => element.getBoundingClientRect().height <= 0.56 * window.innerHeight + 2)).toBe(true);
   // Let MapLibre finish its focus flight before checking marker placement.
   await page.waitForTimeout(800);
   await expect.poll(async () => {
@@ -124,7 +126,7 @@ test("real calendar, filters, source and date navigation", async ({ page }, test
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/?date=2026-09-26");
   if (testInfo.project.name === "desktop") {
-    await expect(page.getByRole("group", { name: "Choose map mode" })).toBeVisible();
+    await expect(page.getByRole("group", { name: "Choose official information layer" })).toBeVisible();
     await expect(page.getByText(/20 events · 14 on map · 6 without map locations/)).toBeVisible();
   }
   const list = testInfo.project.name === "mobile" ? page.locator(".mobile-sheet") : page.locator(".discovery-panel");
@@ -207,7 +209,7 @@ test("mobile sheet expands from its accessible handle", async ({ page }, testInf
   await expect(page.locator(".mobile-sheet")).toHaveClass(/sheet-closed/);
 });
 
-test("mobile discovery controls leave the map dominant in events and crime modes", async ({ page }, testInfo) => {
+test("mobile discovery controls leave the map dominant in events and official info modes", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile");
   await page.route("**/api/safety/crimes?days=*", (route) => route.fulfill({
     status: 200,
@@ -226,13 +228,13 @@ test("mobile discovery controls leave the map dominant in events and crime modes
   });
   await expect.poll(visibleMapGap).toBeGreaterThan(400);
   await expect(page.getByRole("button", { name: /Explore campus buildings/ })).toHaveCount(0);
-  await page.getByRole("button", { name: "Crime" }).click();
+  await page.getByRole("button", { name: "Official info" }).click();
   await expect(page.getByRole("button", { name: "Theft / larceny" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Fraud" })).toHaveCount(0);
   await expect.poll(visibleMapGap).toBeGreaterThan(400);
 });
 
-test("crime markers mount once when switching from events to crime", async ({ page }) => {
+test("historical blotter markers mount once when switching to official info", async ({ page }) => {
   let crimeRequests = 0;
   const fixture = {
     fetchedAt: "2026-09-26T17:00:00.000Z",
@@ -262,7 +264,7 @@ test("crime markers mount once when switching from events to crime", async ({ pa
     auditWindow.__crimeMarkerObserver.observe(panel, { childList: true, subtree: true });
   });
 
-  await page.getByRole("button", { name: "Crime" }).click();
+  await page.getByRole("button", { name: "Official info" }).click();
   await expect(page.getByRole("button", { name: "1 official police blotter entry at Memorial Library" })).toBeVisible();
   await page.waitForTimeout(350);
   const audit = await page.evaluate(() => ({
@@ -383,9 +385,10 @@ test("location explains that a secure connection is required on LAN devices", as
 
 test("map controls stay minimal, 2D, and at the bottom", async ({ page }) => {
   await page.goto("/?date=2026-09-26");
-  await expect(page.locator(".map-tools button")).toHaveCount(3);
+  await expect(page.locator(".map-tools button")).toHaveCount(4);
   await expect(page.getByRole("button", { name: "Locate me" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Back to campus" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Check walking route" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Safety alerts and resources" })).toBeVisible();
   await expect(page.getByRole("button", { name: /fit|3d view|2d view/i })).toHaveCount(0);
 
@@ -398,7 +401,15 @@ test("map controls stay minimal, 2D, and at the bottom", async ({ page }) => {
   expect(controlsBottomGap).toBeLessThan(90);
 });
 
-test("campus safety toolbox prioritizes official help and keeps community reporting private", async ({ page }) => {
+test("verified help stays separate from the anonymous physical-condition report flow", async ({ page }) => {
+  await page.route("**/api/places/search?*", async (route) => {
+    const query = new URL(route.request().url()).searchParams.get("q");
+    if (query === "Van Vleck") {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ places: [{ id: "van-vleck", sourcePlaceId: "van-vleck", name: "Van Vleck Hall", aliases: ["Van Vleck"], kind: "building", coordinates: [-89.407, 43.0748], officialSourceUrl: "https://map.wisc.edu/" }] }) });
+    } else {
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Campus place search is temporarily unavailable." }) });
+    }
+  });
   await page.goto("/?date=2026-09-26");
   await page.getByRole("button", { name: "Safety alerts and resources" }).click();
   const dialog = page.getByRole("dialog");
@@ -406,23 +417,336 @@ test("campus safety toolbox prioritizes official help and keeps community report
   await expect(dialog.getByRole("link", { name: /Immediate danger\? Call 911/ })).toHaveAttribute("href", "tel:911");
   await expect(dialog.getByRole("link", { name: "UW Campus Alerts" })).toHaveAttribute("href", "https://alerts.wisc.edu/");
   await expect(dialog.getByRole("link", { name: "Manage WiscAlerts" })).toHaveAttribute("href", "https://go.wisc.edu/wiscalerts");
+  await expect(dialog.getByText(/Badger Live is independent and is not an emergency service/)).toBeVisible();
+  await expect(dialog.getByText(/reviewer|moderation|sign in/i)).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Close" }).click();
 
-  await dialog.getByRole("button", { name: /Community reports/ }).click();
-  await expect(dialog.getByText("No reviewed community conditions are shared right now.")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Report here/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Ask Badger/ })).toBeVisible();
+  await page.getByRole("button", { name: /Report here/ }).click();
+  const report = page.getByRole("dialog");
+  await expect(report.getByRole("heading", { name: "Report a campus condition" })).toBeVisible();
+  await expect(report.getByLabel("What did you see?")).toBeVisible();
+  await expect(report.getByRole("button", { name: /Choose on map/ })).toBeVisible();
+  await expect(report.getByText(/original message and photo are not published or saved/)).toBeVisible();
+  await expect.poll(async () => report.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    return box.left >= -1 && box.top >= -1 && box.right <= window.innerWidth + 1 && box.bottom <= window.innerHeight + 1;
+  })).toBe(true);
+  await report.getByLabel("Search a campus place").fill("Van Vleck");
+  await expect(report.getByRole("option", { name: /Van Vleck Hall/ })).toBeVisible();
+  await expect(report.getByRole("status").filter({ hasText: /Searching campus places/ })).toHaveCount(0);
+  await report.getByRole("option", { name: /Van Vleck Hall/ }).click();
+  await expect(report.locator(".report-selected-place")).toContainText("Van Vleck Hall");
+  await report.getByLabel("Search a campus place").fill("Missing place");
+  await expect(report.getByRole("status").filter({ hasText: /search is unavailable/i })).toBeVisible();
+  await report.getByRole("button", { name: "Cancel" }).click();
 
-  await dialog.getByRole("button", { name: "Report a condition" }).click();
-  await expect(dialog.getByText(/No human reviewers are assigned yet/)).toBeVisible();
-  await expect(dialog.getByLabel("Campus building or place")).toBeVisible();
-  await expect(dialog.getByText(/not monitored or sent to UW/)).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "Submit private report" })).toBeDisabled();
+  await page.getByRole("button", { name: /Ask Badger/ }).click();
+  const assistant = page.getByRole("dialog");
+  await expect(assistant.getByRole("heading", { name: "What would help today?" })).toBeVisible();
+  await expect(assistant.getByText(/Asking never posts a report/)).toBeVisible();
+  await expect.poll(async () => assistant.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    return box.left >= -1 && box.top >= -1 && box.right <= window.innerWidth + 1 && box.bottom <= window.innerHeight + 1;
+  })).toBe(true);
+  await expect(assistant.getByRole("button", { name: /Post this as a report/ })).toHaveCount(0);
+  await page.route("**/api/assistant", (route) => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "The campus assistant AI is not configured for this deployment yet." }) }));
+  await assistant.getByLabel("Ask a campus question").fill("Is it icy near Van Vleck?");
+  await assistant.getByRole("button", { name: "Ask" }).click();
+  await expect(assistant.getByRole("alert")).toContainText(/not configured/);
+  await expect(assistant.getByRole("button", { name: /Post this as a report/ })).toHaveCount(0);
 
-  const reportResponse = await page.request.get("/api/safety/reports");
-  expect(reportResponse.status()).toBe(200);
-  expect((await reportResponse.json()).reports).toEqual([]);
-  const unsafeReport = await page.request.post("/api/safety/reports", { data: { category: "crime", buildingId: "0055", observedWindow: "just-now", description: "named allegation" } });
-  expect(unsafeReport.status()).toBe(400);
-  const reviewerStatus = await page.request.get("/api/safety/moderation/status");
-  expect((await reviewerStatus.json()).reason).toBe("reviewer-unassigned");
+  expect((await page.request.get("/api/safety/reports")).status()).toBe(404);
+  expect((await page.request.get("/api/safety/moderation/status")).status()).toBe(404);
+});
+
+test("report composer can use a map pin without granting GPS access", async ({ page }) => {
+  await page.goto("/?date=2026-09-26");
+  await waitForBuildingMap(page);
+  await page.getByRole("button", { name: "Report here" }).click();
+  const report = page.getByRole("dialog");
+  await expect(report.getByRole("heading", { name: "Report a campus condition" })).toBeVisible();
+  if ((await report.getAttribute("class"))?.includes("is-collapsed")) await report.getByRole("button", { name: "Change location" }).click();
+  await expect(report).toHaveClass(/is-expanded/);
+  await report.getByRole("button", { name: "Choose on map" }).click();
+  await expect(report).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Campus map" }).getByRole("status").filter({ hasText: "Tap the map where you saw the condition" })).toBeVisible();
+  await clickMapPoint(page, [-89.407, 43.0748]);
+  const pinnedReport = page.getByRole("dialog");
+  await expect(pinnedReport.getByText("Map point selected · approximate")).toBeVisible();
+  await expect(pinnedReport).toHaveClass(/is-expanded/);
+  await expect(pinnedReport.getByRole("button", { name: "Clear map point" })).toBeVisible();
+  await expect(pinnedReport.locator(".report-footer-actions")).toBeVisible();
+  await pinnedReport.getByRole("button", { name: "Cancel" }).click();
+});
+
+test("mobile report composer opens compactly and expands on text focus", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile");
+  await page.context().grantPermissions(["geolocation"]);
+  await page.context().setGeolocation({ latitude: 43.075, longitude: -89.405, accuracy: 18 });
+  await page.goto("/?date=2026-09-26");
+  await waitForBuildingMap(page);
+  await page.getByRole("button", { name: "Report here" }).click();
+
+  const report = page.getByRole("dialog");
+  await expect(report).toHaveClass(/is-collapsed/);
+  const compactRatio = await report.evaluate((element) => element.getBoundingClientRect().height / window.innerHeight);
+  expect(compactRatio).toBeGreaterThan(0.42);
+  expect(compactRatio).toBeLessThan(0.52);
+  const description = report.getByLabel("What did you see?");
+  await expect(description).toHaveCSS("font-size", "16px");
+  await expect(report.getByLabel("Search a campus place")).toHaveCSS("font-size", "16px");
+  const visibleDescriptionHeight = await description.evaluate((element) => {
+    const input = element.getBoundingClientRect();
+    const sheet = element.closest("[role=dialog]")!.getBoundingClientRect();
+    return Math.min(input.bottom, sheet.bottom) - Math.max(input.top, sheet.top);
+  });
+  expect(visibleDescriptionHeight).toBeGreaterThanOrEqual(60);
+
+  await description.click();
+  await expect(report).toHaveClass(/is-expanded/);
+  await expect.poll(async () => report.evaluate((element) => element.getBoundingClientRect().height / window.innerHeight)).toBeGreaterThan(0.8);
+  await expect(report.locator(".report-footer-actions")).toBeVisible();
+  await expect(report.getByRole("button", { name: "Send report" })).toBeVisible();
+  const widths = await page.evaluate(() => ({ viewport: window.innerWidth, document: document.documentElement.scrollWidth }));
+  expect(widths.document).toBeLessThanOrEqual(widths.viewport);
+  await expect(page.locator(".map-panel")).toBeVisible();
+});
+
+test("short mobile report composer keeps the text field visible", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile");
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.context().grantPermissions(["geolocation"]);
+  await page.context().setGeolocation({ latitude: 43.075, longitude: -89.405, accuracy: 18 });
+  await page.goto("/?date=2026-09-26");
+  await waitForBuildingMap(page);
+  await page.getByRole("button", { name: "Report here" }).click();
+
+  const report = page.getByRole("dialog");
+  await expect(report).toHaveClass(/is-collapsed/);
+  const compactRatio = await report.evaluate((element) => element.getBoundingClientRect().height / window.innerHeight);
+  expect(compactRatio).toBeGreaterThan(0.5);
+  expect(compactRatio).toBeLessThan(0.6);
+  const description = report.getByLabel("What did you see?");
+  const visibleDescriptionHeight = await description.evaluate((element) => {
+    const input = element.getBoundingClientRect();
+    const sheet = element.closest("[role=dialog]")!.getBoundingClientRect();
+    return Math.min(input.bottom, sheet.bottom) - Math.max(input.top, sheet.top);
+  });
+  expect(visibleDescriptionHeight).toBeGreaterThanOrEqual(60);
+  await expect(description).toHaveCSS("font-size", "16px");
+  await expect(report.getByLabel("Search a campus place")).toHaveCSS("font-size", "16px");
+  await expect(report.locator(".report-dictation-button")).toBeHidden();
+  await expect(report.locator(".report-dictation-privacy")).toBeHidden();
+  await expect(page.locator(".map-panel")).toBeVisible();
+  const widths = await page.evaluate(() => ({ viewport: window.innerWidth, document: document.documentElement.scrollWidth }));
+  expect(widths.document).toBeLessThanOrEqual(widths.viewport);
+
+  await description.click();
+  await expect(report).toHaveClass(/is-expanded/);
+  await expect.poll(async () => report.locator(".report-text-heading").evaluate((element) => {
+    const heading = element.getBoundingClientRect();
+    const content = element.closest(".report-form-content")!.getBoundingClientRect();
+    return Math.min(heading.bottom, content.bottom) - Math.max(heading.top, content.top);
+  })).toBeGreaterThanOrEqual(20);
+  await expect(report.locator(".report-dictation-privacy")).toBeVisible();
+  await expect(report.locator(".report-footer-actions")).toBeVisible();
+});
+
+test("GPS denial expands the composer and exposes manual location choices", async ({ page }) => {
+  await page.addInitScript(() => {
+    const deniedGeolocation = {
+      getCurrentPosition(_success: PositionCallback, error?: PositionErrorCallback | null) {
+        const denial = { code: 1, message: "Permission denied", PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3 } as GeolocationPositionError;
+        window.setTimeout(() => error?.(denial), 0);
+      },
+    };
+    Object.defineProperty(navigator, "geolocation", { configurable: true, value: deniedGeolocation });
+  });
+  await page.goto("/?date=2026-09-26");
+  await page.getByRole("button", { name: "Report here" }).click();
+
+  const report = page.getByRole("dialog");
+  await expect(report.locator(".report-location-heading strong")).toContainText("Location access is off");
+  await expect(report).toHaveClass(/is-expanded/);
+  await expect(report.getByRole("button", { name: "Choose on map" })).toBeVisible();
+  await expect(report.getByLabel("Search a campus place")).toBeVisible();
+  await expect(report.locator(".report-footer-actions")).toBeVisible();
+  await expect(report).not.toContainText("GPS is requested only after you open this form");
+  await expect(report.getByRole("button", { name: "Send report" })).toBeDisabled();
+});
+
+test("voice dictation is opt-in and sends transcript text only after Send", async ({ page }) => {
+  const submissions: Array<Record<string, unknown>> = [];
+  await page.addInitScript(() => {
+    class FakeSpeechRecognition {
+      continuous = false;
+      interimResults = false;
+      lang = "";
+      onresult: ((event: { resultIndex: number; results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }> }) => void) | null = null;
+      onerror: ((event: { error: string }) => void) | null = null;
+      onend: (() => void) | null = null;
+      start() {
+        window.setTimeout(() => {
+          this.onresult?.({ resultIndex: 0, results: [{ isFinal: true, 0: { transcript: "Icy near Van Vleck." } }] });
+          this.onend?.();
+        }, 0);
+      }
+      stop() { this.onend?.(); }
+      abort() { this.onend?.(); }
+    }
+    Object.defineProperty(window, "SpeechRecognition", { configurable: true, value: FakeSpeechRecognition });
+  });
+  await page.route("**/api/report/publish", async (route) => {
+    submissions.push(route.request().postDataJSON() as Record<string, unknown>);
+    await route.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify({ outcome: "not_published", message: "Fixture stopped before publication." }) });
+  });
+
+  await page.goto("/?date=2026-09-26");
+  await page.getByRole("button", { name: "Report here" }).click();
+  const report = page.getByRole("dialog");
+  const dictate = report.getByRole("button", { name: "Start voice dictation" });
+  await expect(dictate).toBeVisible();
+  await expect(report.getByText(/browser's speech service may process microphone audio/i)).toBeVisible();
+  expect(submissions).toHaveLength(0);
+
+  await dictate.click();
+  const description = report.getByLabel("What did you see?");
+  await expect(description).toHaveValue("Icy near Van Vleck.");
+  await expect(report.getByRole("button", { name: "Send report" })).toBeEnabled();
+  expect(submissions).toHaveLength(0);
+
+  await report.getByRole("button", { name: "Send report" }).click();
+  await expect(report.getByRole("alert")).toContainText("Fixture stopped before publication.");
+  expect(submissions).toHaveLength(1);
+  expect(submissions[0].text).toBe("Icy near Van Vleck.");
+  expect(submissions[0]).not.toHaveProperty("audio");
+});
+
+test("unsupported browsers keep the report composer usable with a dictation fallback", async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, "SpeechRecognition", { configurable: true, value: undefined });
+    Object.defineProperty(window, "webkitSpeechRecognition", { configurable: true, value: undefined });
+  });
+  await page.goto("/?date=2026-09-26");
+  await page.getByRole("button", { name: "Report here" }).click();
+
+  const report = page.getByRole("dialog");
+  await expect(report.getByText(/Voice dictation isn.t available in this browser/)).toBeVisible();
+  await expect(report.getByRole("button", { name: /dictation/i })).toHaveCount(0);
+  await report.getByLabel("What did you see?").fill("Icy near Van Vleck.");
+  await expect(report.getByRole("button", { name: "Send report" })).toBeEnabled();
+});
+
+test("report time follow-up keeps the draft and requires an answer before retry", async ({ page }) => {
+  const submissions: Array<Record<string, unknown>> = [];
+  await page.route("**/api/report/publish", async (route) => {
+    const submission = route.request().postDataJSON() as Record<string, unknown>;
+    submissions.push(submission);
+    const result = submissions.length === 1
+      ? { outcome: "needs_followup", itemIndex: 0, question: "When did you see this condition?" }
+      : { outcome: "not_published", message: "Fixture stopped before publication." };
+    await route.fulfill({ status: submissions.length === 1 ? 200 : 422, contentType: "application/json", body: JSON.stringify(result) });
+  });
+
+  await page.goto("/?date=2026-09-26");
+  await page.getByRole("button", { name: "Report here" }).click();
+  const report = page.getByRole("dialog");
+  const description = "The sidewalk was icy near Van Vleck.";
+  await report.getByLabel("What did you see?").fill(description);
+  const send = report.getByRole("button", { name: "Send report" });
+  await send.click();
+
+  await expect(report.getByText("When did you see this condition?")).toBeVisible();
+  await expect(report.getByLabel("What did you see?")).toHaveValue(description);
+  const timeAnswer = report.getByPlaceholder("For example: about 20 minutes ago");
+  await expect(timeAnswer).toBeVisible();
+  await expect(send).toBeDisabled();
+  await timeAnswer.fill("about 20 minutes ago");
+  await expect(send).toBeEnabled();
+  await send.click();
+  await expect(report.getByRole("alert")).toContainText("Fixture stopped before publication.");
+  await expect(report.getByLabel("What did you see?")).toHaveValue(`${description}\nabout 20 minutes ago`);
+  expect(submissions).toHaveLength(2);
+  expect(submissions[0].text).toBe(description);
+  expect(submissions[1].text).toBe(`${description}\nabout 20 minutes ago`);
+});
+
+test("same-issue receipt reports the added observation instead of zero reports", async ({ page }) => {
+  const candidateId = "00000000-0000-4000-8000-000000000555";
+  const publishTime = "2026-09-27T12:00:00.000Z";
+  const submissions: Array<Record<string, unknown>> = [];
+  await page.route("**/api/report/publish", async (route) => {
+    const submission = route.request().postDataJSON() as Record<string, unknown>;
+    submissions.push(submission);
+    const result = submissions.length === 1
+      ? { outcome: "possible_duplicates", issues: [{ itemIndex: 0, title: "Icy surface", candidates: [{ id: candidateId, kind: "ice", title: "Icy surface", coordinates: [-89.407, 43.071], placeId: null, locationMethod: "pin", locationAccuracyM: null, lifecycle: "active", observationCount: 1, lastObservedAt: publishTime }] }] }
+      : { outcome: "posted", postedCount: 0, recheckedCount: 1, idempotent: false, reports: [{ id: candidateId, kind: "ice", title: "Icy surface", coordinates: [-89.407, 43.071], placeId: null, locationMethod: "pin", locationAccuracyM: null, reportedSeverity: "unknown", observationLabel: "unverified", lifecycle: "active", observationCount: 2, observedAt: publishTime, lastObservedAt: publishTime, expiresAt: "2026-09-27T13:00:00.000Z", version: 2, recheckStatus: "counted" }], capabilities: [] };
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(result) });
+  });
+
+  await page.goto("/?date=2026-09-27");
+  await waitForBuildingMap(page);
+  await page.getByRole("button", { name: "Report here" }).click();
+  const report = page.getByRole("dialog");
+  await report.getByLabel("What did you see?").fill("Icy here");
+  await report.getByRole("button", { name: "Send report" }).click();
+  await expect(report.getByText("POSSIBLE NEARBY MATCH")).toBeVisible();
+  await report.getByRole("button", { name: /Same issue/ }).click();
+  await report.getByRole("button", { name: "Confirm choices & send" }).click();
+
+  await expect(report.getByRole("heading", { name: "Observation added" })).toBeVisible();
+  await expect(report.getByText("1 observation added", { exact: true })).toBeVisible();
+  await expect(report.locator(".report-receipt-card small")).toContainText("Observation added");
+  await expect(report.getByText(/0 reports posted/)).toHaveCount(0);
+  expect(submissions).toHaveLength(2);
+  expect(submissions[1].duplicateDecisions).toEqual([{ itemIndex: 0, choice: "same", reportId: candidateId }]);
+});
+
+test("a fresh report receipt can correct only its safe category using the local capability", async ({ page }) => {
+  const reportId = "00000000-0000-4000-8000-000000000556";
+  const token = `${reportId}.local-capability-token-with-enough-entropy`;
+  const createdAt = "2026-09-27T12:00:00.000Z";
+  const initialReport = {
+    id: reportId, kind: "ice", title: "Icy surface", coordinates: [-89.407, 43.071], placeId: null,
+    locationMethod: "pin", locationAccuracyM: null, reportedSeverity: "unknown", observationLabel: "unverified",
+    lifecycle: "active", observationCount: 1, observedAt: createdAt, lastObservedAt: createdAt,
+    expiresAt: "2026-09-27T18:00:00.000Z", version: 1,
+  };
+  const editedReport = { ...initialReport, kind: "broken_light", title: "Broken exterior light", version: 2 };
+  let editBody: Record<string, unknown> | null = null;
+  await page.route("**/api/map/reports?bbox=*", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ reports: [] }) }));
+  await page.route("**/api/report/publish", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ outcome: "posted", postedCount: 1, recheckedCount: 0, idempotent: false, reports: [initialReport], capabilities: [{ reportId, token }] }) }));
+  await page.route(`**/api/report/${reportId}/edit`, async (route) => {
+    editBody = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ updated: true, report: editedReport }) });
+  });
+
+  await page.goto("/?date=2026-09-27");
+  await page.getByRole("button", { name: "Report here" }).click();
+  const receipt = page.getByRole("dialog");
+  await receipt.getByLabel("What did you see?").fill("Ice near the ramp");
+  await receipt.getByRole("button", { name: "Send report" }).click();
+  await expect(receipt.getByRole("heading", { name: "Report posted" })).toBeVisible();
+  await expect(receipt.getByRole("button", { name: /Edit category/ })).toBeVisible();
+
+  await receipt.getByRole("button", { name: /Edit category/ }).click();
+  const cardFitsViewport = await receipt.locator(".report-receipt-card").evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    return element.scrollWidth <= element.clientWidth && bounds.left >= 0 && bounds.right <= window.innerWidth;
+  });
+  expect(cardFitsViewport).toBe(true);
+  await receipt.getByLabel("Correct the category").selectOption("broken_light");
+  await receipt.getByRole("button", { name: "Save category" }).click();
+
+  await expect(receipt.locator(".report-receipt-card strong")).toHaveText("Broken exterior light");
+  await expect(receipt.getByRole("status")).toContainText("Category updated");
+  expect(editBody).not.toBeNull();
+  expect(Object.keys(editBody!).sort()).toEqual(["capability", "expectedVersion", "kind", "visitorId"]);
+  expect(editBody).toMatchObject({ capability: token, expectedVersion: 1, kind: "broken_light" });
+  expect(editBody).not.toHaveProperty("text");
+  expect(editBody).not.toHaveProperty("photo");
 });
 
 test("campus building footprints load and open details directly from the map", async ({ page }) => {

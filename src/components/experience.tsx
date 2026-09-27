@@ -2,12 +2,13 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, CalendarDays, Check, Compass, LocateFixed, Navigation, Share2, ShieldAlert, Sparkles, X } from "lucide-react";
+import { ArrowLeft, CalendarDays, Check, Compass, LocateFixed, MapPin, Navigation, Share2, ShieldAlert, Sparkles, X } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { chicagoDate, eventStatus, formatDay, isValidDate, shiftDate } from "@/lib/chicago-date";
 import { availableCategoriesForSearch, groupVenues, type CampusEvent, type FilterCategory } from "@/lib/events";
 import { crimeCategories, filterCrimeIncidents, groupCrimeLocations, groupUnmappedCrimeLocations, type CrimeCategory, type OfficialCrimeIncident } from "@/lib/crime-model";
-import type { CommunitySafetyReport } from "@/lib/safety";
+import type { HazardReport } from "@/lib/report/types";
+import { useHazardUpdates } from "@/lib/report/use-hazard-updates";
 import { parseCampusBuildings, type CampusBuilding, type CampusBuildings } from "@/lib/campus-buildings";
 import { isWithinCampusMapBounds } from "@/lib/campus-map-bounds";
 import { campusEventsAtBuilding, googleMapsDirectionsUrl } from "@/lib/campus-building-events";
@@ -19,12 +20,15 @@ import { SafetyCenter } from "./safety-center";
 import { type DiscoveryMode } from "./mode-switcher";
 import { DiscoveryToolbar } from "./discovery-toolbar";
 import { CrimeReportCard } from "./crime-report-card";
+import { ReportSheet } from "./report/report-sheet";
+import { ReportDetailsSheet } from "./report/report-details-sheet";
+import { AssistantSheet } from "./assistant/assistant-sheet";
+import { RoutePlanner, type PlannedWalkingRoute } from "./routes/route-planner";
 
 const CampusMap = dynamic(() => import("./campus-map").then((module) => module.CampusMap), { ssr: false, loading: () => <div className="map-loading"><span className="loading-orbit" /> Mapping campus…</div> });
 type DayResponse = EventsResult & { date: string };
 type CrimeResponse = { incidents: OfficialCrimeIncident[]; fetchedAt: string; windowDays: 14 | 30; windowStart: string; windowEnd: string; latestArticleDate: string | null; partial: boolean; error?: string };
 type SheetLevel = "closed" | "half" | "full";
-type SafetyStartView = "official" | "community" | "report";
 type LocationMessage = { kind: "loading" | "success" | "warning" | "error"; text: string };
 
 export function Experience({ initialDate, initial, initialEvent, initialMode = "events", mapKey }: { initialDate: string; initial: EventsResult | null; initialEvent?: string; initialMode?: DiscoveryMode; mapKey: string }) {
@@ -59,35 +63,23 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
   const [buildings, setBuildings] = useState<CampusBuildings | null>(null);
   const [selectedBuilding, setSelectedBuilding] = useState<CampusBuilding | null>(null);
   const [safetyOpen, setSafetyOpen] = useState(false);
-  const [safetyStartView, setSafetyStartView] = useState<SafetyStartView>("official");
-  const [safetyReports, setSafetyReports] = useState<CommunitySafetyReport[]>([]);
-  const [safetyReportsLoading, setSafetyReportsLoading] = useState(true);
-  const [safetyReportsUnavailable, setSafetyReportsUnavailable] = useState(false);
-  const [selectedSafetyReportId, setSelectedSafetyReportId] = useState<string | null>(null);
-  const [safetyOpenKey, setSafetyOpenKey] = useState(0);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportSessionId, setReportSessionId] = useState(0);
+  const [reportInitialText, setReportInitialText] = useState("");
+  const [assistantOpen, setAssistantOpen] = useState(false);
+  const [assistantInitialQuery, setAssistantInitialQuery] = useState("");
+  const [assistantSessionId, setAssistantSessionId] = useState(0);
+  const [pickingLocation, setPickingLocation] = useState(false);
+  const [reportPin, setReportPin] = useState<[number, number] | null>(null);
+  const [communityLayerVisible, setCommunityLayerVisible] = useState(true);
+  const [selectedHazardId, setSelectedHazardId] = useState<string | null>(null);
+  const [selectedHazardSnapshot, setSelectedHazardSnapshot] = useState<HazardReport | null>(null);
+  const [reportDetailsOpen, setReportDetailsOpen] = useState(false);
+  const [routePlannerOpen, setRoutePlannerOpen] = useState(false);
+  const [candidateRoute, setCandidateRoute] = useState<PlannedWalkingRoute | null>(null);
+  const { reports: communityReports, unavailable: communityReportsUnavailable, refresh: refreshCommunityReports } = useHazardUpdates();
   const listRef = useRef<HTMLDivElement>(null);
   const dragStart = useRef<number | null>(null);
-
-  const refreshSafetyReports = useCallback(async () => {
-    try {
-      const response = await fetch("/api/safety/reports", { cache: "no-store" });
-      const result = await response.json() as { reports?: CommunitySafetyReport[] };
-      if (!response.ok || !Array.isArray(result.reports)) throw new Error("Community reports are unavailable");
-      setSafetyReports(result.reports);
-      setSafetyReportsUnavailable(false);
-    } catch {
-      setSafetyReports([]);
-      setSafetyReportsUnavailable(true);
-    } finally {
-      setSafetyReportsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    const initialFetch = window.setTimeout(() => void refreshSafetyReports(), 0);
-    const timer = window.setInterval(() => void refreshSafetyReports(), 90_000);
-    return () => { window.clearTimeout(initialFetch); window.clearInterval(timer); };
-  }, [refreshSafetyReports]);
 
   useEffect(() => {
     if (initial) writeClientEventDay(dayCache.current, initialDate, { ...initial, date: initialDate });
@@ -243,19 +235,53 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
     setSheet(next ? "half" : "closed");
   };
 
-  const openSafetyReport = (reportId: string) => {
-    const report = safetyReports.find((item) => item.id === reportId);
-    if (report) setFocus([...report.coordinates]);
-    setSelectedSafetyReportId(reportId);
-    setSafetyStartView("community");
-    setSafetyOpenKey((key) => key + 1);
-    setSafetyOpen(true);
-  };
-
-  const openSafetyCenter = (view: SafetyStartView = "official") => {
-    setSafetyStartView(view);
-    setSafetyOpenKey((key) => key + 1);
-    setSafetyOpen(true);
+  const openSafetyCenter = () => setSafetyOpen(true);
+  const openReportComposer = useCallback((text = "") => {
+    setReportSessionId((id) => id + 1);
+    setReportInitialText(text);
+    setPickingLocation(false);
+    setReportPin(null);
+    setReportOpen(true);
+  }, []);
+  const clearReportPin = useCallback(() => setReportPin(null), []);
+  const chooseMapPointMode = useCallback(() => {
+    setReportOpen(false);
+    setPickingLocation(true);
+  }, []);
+  const selectMapPoint = useCallback((coordinates: [number, number]) => {
+    if (!isWithinCampusMapBounds(coordinates)) {
+      setLocationMessage({ kind: "warning", text: "Choose a point inside the UW–Madison campus map." });
+      return;
+    }
+    setReportPin(coordinates);
+    setPickingLocation(false);
+    setReportOpen(true);
+  }, []);
+  const handleSelectHazard = useCallback((id: string) => {
+    const report = communityReports.find((item) => item.id === id);
+    if (!report) { void refreshCommunityReports(); return; }
+    setSelectedHazardId(id);
+    setSelectedHazardSnapshot(report);
+    setFocus([...report.coordinates]);
+    setReportDetailsOpen(true);
+  }, [communityReports, refreshCommunityReports]);
+  const selectedHazard = communityReports.find((item) => item.id === selectedHazardId) || selectedHazardSnapshot;
+  const onReportsChanged = useCallback(() => { void refreshCommunityReports(); }, [refreshCommunityReports]);
+  const viewReportOnMap = useCallback((report: HazardReport) => {
+    setSelectedHazardId(report.id);
+    setSelectedHazardSnapshot(report);
+    setFocus([...report.coordinates]);
+    setReportOpen(false);
+    setReportDetailsOpen(true);
+  }, []);
+  const postAssistantSuggestion = useCallback((text: string) => {
+    setAssistantOpen(false);
+    openReportComposer(text);
+  }, [openReportComposer]);
+  const openAssistant = () => {
+    setAssistantSessionId((id) => id + 1);
+    setAssistantInitialQuery("");
+    setAssistantOpen(true);
   };
 
   const selectGroup = (id: string) => {
@@ -401,13 +427,20 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
   const renderCrimeCards = (items: OfficialCrimeIncident[]) => items.map((incident) => <CrimeReportCard key={incident.id} incident={incident} selected={selectedCrimeIncidentId === incident.id} onSelect={() => selectCrimeIncident(incident)} />);
 
   return <main className={`experience ${sheet !== "closed" ? "has-open-sheet" : ""}`}>
-    <section className="map-panel" aria-label="Campus map">
-      <CampusMap groups={mode === "events" ? groups : []} selectedGroupId={mode === "events" ? activeGroupId : null} liveGroupIds={mode === "events" ? liveGroupIds : []} crimeGroups={mode === "crime" ? crimeGroups : []} selectedCrimeGroupId={mode === "crime" ? selectedCrimeGroupId : null} onSelectCrimeGroup={selectCrimeGroup} safetyReports={mode === "events" ? safetyReports : []} selectedSafetyReportId={selectedSafetyReportId} onSelectSafetyReport={openSafetyReport} onSelect={selectGroup} focus={focus} sheetLevel={sheet} userLocation={userLocation} campusSignal={campusSignal} mapKey={mapKey} buildings={buildings} selectedBuildingId={selectedBuilding?.mapObjectId || null} onSelectBuilding={selectBuilding} />
+    <section className={`map-panel ${pickingLocation ? "is-picking-location" : ""}`} aria-label="Campus map">
+      <CampusMap groups={mode === "events" ? groups : []} selectedGroupId={mode === "events" ? activeGroupId : null} liveGroupIds={mode === "events" ? liveGroupIds : []} crimeGroups={mode === "crime" ? crimeGroups : []} selectedCrimeGroupId={mode === "crime" ? selectedCrimeGroupId : null} onSelectCrimeGroup={selectCrimeGroup} hazards={communityReports} hazardsVisible={communityLayerVisible} selectedHazardId={selectedHazardId} onSelectHazard={handleSelectHazard} candidateRoute={candidateRoute} pickingLocation={pickingLocation} onMapPoint={selectMapPoint} onSelect={selectGroup} focus={focus} sheetLevel={sheet} userLocation={userLocation} campusSignal={campusSignal} mapKey={mapKey} buildings={buildings} selectedBuildingId={selectedBuilding?.mapObjectId || null} onSelectBuilding={selectBuilding} />
       <div className="map-tools">
         <button aria-label="Locate me" title={locating ? "Requesting your location…" : "Request location (permission is requested on tap)"} aria-busy={locating} disabled={locating} className={locating ? "is-locating" : undefined} onClick={locate}><LocateFixed size={19} /></button>
         <button aria-label="Back to campus" title="Back to campus" onClick={() => setCampusSignal((n) => n + 1)}><Compass size={19} /></button>
+        <button aria-label="Check walking route" title="Check walking route between campus places" onClick={() => setRoutePlannerOpen(true)}><Navigation size={19} /></button>
         <button aria-label="Safety alerts and resources" title="Safety alerts and resources" onClick={() => openSafetyCenter()}><ShieldAlert size={19} /></button>
       </div>
+      <div className="map-actions" aria-label="Campus tools">
+        <button type="button" className="map-action-report" onClick={() => openReportComposer()}><MapPin size={17} /><span>Report here</span></button>
+        <button type="button" className="map-action-assistant" onClick={openAssistant}><Sparkles size={17} /><span>Ask Badger</span></button>
+      </div>
+      {pickingLocation && <div className="map-pick-banner" role="status"><MapPin size={16} /><span>Tap the map where you saw the condition</span><button type="button" onClick={() => setPickingLocation(false)}>Cancel</button></div>}
+      {communityReportsUnavailable && <div className="community-data-status" role="status">Community observations are temporarily unavailable.</div>}
       {locationMessage && <div className={`map-notice map-notice--${locationMessage.kind}`} role={locationMessage.kind === "error" ? "alert" : "status"} aria-live={locationMessage.kind === "error" ? "assertive" : "polite"}><span className="map-notice-copy">{locationMessage.text}</span><button className="map-notice-dismiss" aria-label="Dismiss location message" onClick={() => setLocationMessage(null)}><X size={16} /></button></div>}
     </section>
 
@@ -418,6 +451,9 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
         resultCount={mode === "crime" ? filteredCrimes.length : filtered.length}
         listOpen={sheet !== "closed"}
         onToggleList={toggleResultList}
+        communityVisible={communityLayerVisible}
+        communityCount={communityReports.length}
+        onCommunityChange={setCommunityLayerVisible}
         events={{ date, query, category, availableCategories: availableEventCategories, onDateChange: chooseDate, onQueryChange: search, onCategoryChange: chooseCategory, onPrevious: () => chooseDate(shiftDate(date, -1)), onNext: () => chooseDate(shiftDate(date, 1)) }}
         crime={{ query: crimeQuery, category: crimeCategory, windowDays: crimeWindow, latestArticleDate: crimeData?.latestArticleDate || null, loading: crimeLoading, availableCategories: availableCrimeCategories, onQueryChange: (value) => { setCrimeQuery(value); setSelectedCrimeGroupId(null); setSelectedCrimeIncidentId(null); }, onCategoryChange: (value) => { setCrimeCategory(value); setSelectedCrimeGroupId(null); setSelectedCrimeIncidentId(null); }, onWindowChange: chooseCrimeWindow }}
       />
@@ -478,7 +514,11 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
       </DialogContent>
     </Dialog>
 
-    <SafetyCenter key={safetyOpenKey} open={safetyOpen} onOpenChange={setSafetyOpen} initialView={safetyStartView} buildings={buildings} reports={safetyReports} reportsLoading={safetyReportsLoading} reportsUnavailable={safetyReportsUnavailable} selectedReportId={selectedSafetyReportId} onSelectReport={(report) => { setSelectedSafetyReportId(report.id); setFocus([...report.coordinates]); }} onReportsChanged={() => { void refreshSafetyReports(); }} />
+    <SafetyCenter open={safetyOpen} onOpenChange={setSafetyOpen} />
+    <RoutePlanner open={routePlannerOpen} onOpenChange={setRoutePlannerOpen} onRouteChange={setCandidateRoute} />
+    <ReportSheet key={`report-${reportSessionId}`} open={reportOpen} onOpenChange={setReportOpen} initialText={reportInitialText} pinCoordinates={reportPin} onChooseMapPoint={chooseMapPointMode} onClearPin={clearReportPin} onReportsPosted={onReportsChanged} onViewReport={viewReportOnMap} />
+    <AssistantSheet key={`assistant-${assistantSessionId}`} open={assistantOpen} onOpenChange={setAssistantOpen} date={date} initialQuery={assistantInitialQuery} onPostAsReport={postAssistantSuggestion} />
+    <ReportDetailsSheet report={selectedHazard} open={reportDetailsOpen} onOpenChange={(open) => { setReportDetailsOpen(open); if (!open) setSelectedHazardId(null); }} onChanged={() => void refreshCommunityReports()} />
 
     <section className={`mobile-sheet sheet-${sheet}`} aria-label={mode === "crime" ? "UWPD blotter list" : "Event list"} aria-hidden={sheet === "closed"} inert={sheet === "closed"} onKeyDown={(event) => { if (event.key === "Escape") { setSheet("closed"); setSelectedId(null); setSelectedGroupId(null); setSelectedCrimeGroupId(null); setSelectedCrimeIncidentId(null); } }}>
       <div className="sheet-handle-zone" onPointerDown={(event) => { dragStart.current = event.clientY; }} onPointerUp={(event) => {

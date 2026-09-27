@@ -3,5 +3,5 @@ import path from "node:path";
 
 export default defineConfig({
   resolve: { alias: { "@": path.resolve(import.meta.dirname, "src") } },
-  test: { environment: "jsdom", include: ["src/**/*.test.ts", "src/**/*.test.tsx"] },
+  test: { environment: "jsdom", include: ["src/**/*.test.ts", "src/**/*.test.tsx", "scripts/**/*.test.ts"] },
 });

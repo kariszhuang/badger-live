@@ -3,6 +3,7 @@ import postgres from "postgres";
 import { campusEventSchema, type CampusEvent } from "./events";
 import { EVENT_CACHE_TTL_MS } from "./event-cache-policy";
 import { databaseConnectionString } from "./database-url";
+import { writeOfficialEventIndex } from "./official-event-index";
 
 const eventListSchema = campusEventSchema.array();
 
@@ -58,15 +59,18 @@ export async function writeCachedEventDay(date: string, events: CampusEvent[], f
   if (!sql) return false;
   const expiresAt = new Date(fetchedAt.valueOf() + EVENT_CACHE_TTL_MS);
   try {
-    await sql`
-      insert into public.uw_event_days (event_date, events, fetched_at, expires_at, source)
-      values (${date}::date, ${sql.json(events)}, ${fetchedAt.toISOString()}::timestamptz, ${expiresAt.toISOString()}::timestamptz, 'uw-official')
-      on conflict (event_date) do update
-      set events = excluded.events,
-          fetched_at = excluded.fetched_at,
-          expires_at = excluded.expires_at,
-          source = excluded.source
-    `;
+    await sql.begin(async (tx) => {
+      await tx`
+        insert into public.uw_event_days (event_date, events, fetched_at, expires_at, source)
+        values (${date}::date, ${tx.json(events)}, ${fetchedAt.toISOString()}::timestamptz, ${expiresAt.toISOString()}::timestamptz, 'uw-official')
+        on conflict (event_date) do update
+        set events = excluded.events,
+            fetched_at = excluded.fetched_at,
+            expires_at = excluded.expires_at,
+            source = excluded.source
+      `;
+      await writeOfficialEventIndex(tx, date, events, fetchedAt);
+    });
     markAvailable();
     return true;
   } catch {

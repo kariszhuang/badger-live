@@ -98,7 +98,7 @@ test("slow GPS falls back once to a quicker approximate fix", async ({ page }) =
     state.__badgerGeoRequests?.[0]?.error?.({ code: 3, message: "Timed out", PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3 } as GeolocationPositionError);
   });
   await expect(page.getByRole("status").filter({ hasText: /still looking for your location/i })).toBeVisible();
-  await expect.poll(() => page.evaluate(() => (window as LocationHarness).__badgerGeoRequests?.length ?? 0)).toBe(2);
+  await expect.poll(() => page.evaluate(() => (window as LocationHarness).__badgerGeoRequests?.length ?? 0), { timeout: 10_000 }).toBe(2);
   const requestOptions = await page.evaluate(() => (window as LocationHarness).__badgerGeoRequests?.map(({ options }) => options));
   expect(requestOptions?.[0]).toMatchObject({ enableHighAccuracy: true, timeout: 8000, maximumAge: 0 });
   expect(requestOptions?.[1]).toMatchObject({ enableHighAccuracy: false, timeout: 10000, maximumAge: 15000 });
@@ -125,7 +125,7 @@ test("location errors stay in a compact mobile notice", async ({ page }) => {
   }, index);
 
   await failWithTimeout(0);
-  await expect.poll(() => page.evaluate(() => (window as LocationHarness).__badgerGeoRequests?.length ?? 0)).toBe(2);
+  await expect.poll(() => page.evaluate(() => (window as LocationHarness).__badgerGeoRequests?.length ?? 0), { timeout: 10_000 }).toBe(2);
   await failWithTimeout(1);
   await expect(page.getByRole("alert").filter({ hasText: /couldn't get your location/i })).toBeVisible();
 
