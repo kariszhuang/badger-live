@@ -12,13 +12,18 @@ The app uses a public Supabase URL and publishable key for Auth. It uses a priva
 
 For local development, `.env.development.local` is ignored by Git and contains the hosted project URL, publishable key, and database URI. Never copy its database password or full URI into source files or chat. To use the local database instead, set the local Supabase URL and local Postgres URL from `.env.example`; the app deliberately does not silently fall back to local Postgres when configured with hosted Auth.
 
-These values are configured in the Badger Live Vercel Production environment:
+These variables are currently configured in the Badger Live Vercel Production environment:
 
 - `NEXT_PUBLIC_SUPABASE_URL` — the hosted project URL (public config).
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` — the public publishable key (public config).
 - `DATABASE_URL` — the supplied Supabase shared Session Pooler URI (port 5432), stored as a Vercel Production secret. The app uses Postgres.js transactions; its current driver has a documented caveat with Supabase's shared transaction pooler. The client is module-scoped, limited to one connection, and disables prepared statements. Session mode is a practical fit for this low-volume deployment; monitor connections before scaling and revisit the driver/pooler choice.
-- `SAFETY_REPORT_HASH_SECRET` — a long random server-only value used to rate-limit anonymous reports.
-- `SAFETY_MODERATOR_EMAILS` — optional, server-only allowlist of exact, verified moderator accounts. Leave unset until reviewers are appointed.
+
+To configure these in a new environment, add the two `NEXT_PUBLIC_*` values and the server-only `DATABASE_URL` under Vercel **Project → Settings → Environment Variables**. Scope `DATABASE_URL` only to Production until a separate staging database exists. Environment changes apply to new deployments, not deployments that are already built; redeploy and verify the new deployment afterward. The database URI must never use a `NEXT_PUBLIC_*` name.
+
+The following safety settings are not currently configured in Vercel Production:
+
+- `SAFETY_REPORT_HASH_SECRET` — optional long random server-only HMAC key for report rate limiting. If omitted, the server derives this key from `DATABASE_URL`; set a distinct value when establishing a production secret-rotation routine.
+- `SAFETY_MODERATOR_EMAILS` — server-only comma-separated allowlist of exact, verified moderator accounts. It is intentionally unset until human reviewers are appointed. Until then, the moderation endpoint returns an unavailable response and reports remain private.
 
 Do not point Preview deployments at the production safety-report database. Until a separate staging project is available, leave `DATABASE_URL` unset in Preview; public events continue to load, while database-backed reporting stays unavailable.
 
@@ -34,7 +39,11 @@ Migrations in `supabase/migrations/` are additive and restrictive: public roles 
 
 The GitHub workflow requires no Supabase personal access token because it connects directly using the database URI. Do not enable automatic production migrations until the secret, environment protection, and deployment ordering have been verified. If a migration changes existing schema or data, review and test that migration separately before applying it.
 
+For future schema changes, create an additive migration under `supabase/migrations/`, test it against a fresh local stack with `bun run db:reset`, then run the GitHub production migration workflow with `apply=false` and inspect the SQL/dry-run before applying with `apply=true`. Deploy application code that depends on the new schema only after the migration succeeds. Keep changes backward-compatible during rollout; do not edit production tables manually in the dashboard as a substitute for a migration.
+
 On 2026-09-27, the two checked-in migrations were applied to the hosted database through the supplied Session Pooler URI, and local and remote migration histories were verified to match. The schema includes `uw_event_days`, `safety_reports`, and `safety_moderation_events`. A production dry-run of the GitHub workflow also succeeded with no pending migrations. `uw_event_days` is prewarmed for September 26 (20 official events) and September 27 (10); safety tables correctly remain empty until users submit reports and a reviewer is assigned.
+
+After a production deployment, verify `/api/events?date=YYYY-MM-DD` returns `cacheStatus: "supabase"`. For a previously uncached date, a successful upstream fetch and database upsert should also return that status; request it again and confirm the same `fetchedAt` is served from the persisted cache. `cacheStatus: "live"` means the app could not use the database cache. Verify `/api/safety/reports` returns an empty list while no reports exist, and that `/api/safety/moderation` stays unavailable until moderators are explicitly assigned.
 
 ## Future Supabase work
 
