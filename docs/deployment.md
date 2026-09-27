@@ -1,6 +1,6 @@
 # Local setup and deployment
 
-This guide describes the no-login implementation in this branch. The hosted Supabase project and Vercel deployment have not been changed or verified as part of this work. Do not enable public writes in production until the project-specific setup below has been completed and checked.
+This guide describes the no-login implementation and its deployment. The production setup and live endpoint checks recorded below were completed on 2026-09-27.
 
 ## App deployment and CI
 
@@ -36,7 +36,7 @@ Use separate projects and credentials for production and preview/staging. Requir
 | `NEXT_PUBLIC_MAPTILER_KEY` | Browser | Optional public tile key. Restrict allowed origins; OpenFreeMap is the fallback. |
 | `NEXT_PUBLIC_SUPABASE_URL` | Browser | Supabase Realtime endpoint. |
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Browser | Public Broadcast subscription only; never grants write authority. |
-| `DATABASE_URL` | Server secret | Direct Postgres/Session Pooler connection for the app's parameterized SQL and transactions. |
+| `DATABASE_URL` | Server secret | Supabase pooler connection for the app's parameterized SQL and transactions. Vercel converts the shared pooler session port to transaction port 6543. |
 | `OPENAI_API_KEY` | Server secret | Report moderation, structured intake, and Ask Badger. |
 | `OPENROUTESERVICE_API_KEY` | Server secret, optional | Pedestrian directions for the route planner. It is never exposed to the browser. Without it, route planning explains that directions are not configured; the geometry-inspection API remains usable for supplied paths. |
 | `OPENAI_REPORT_MODEL` | Server configuration | Defaults to documented `gpt-6-luna`; verify project access before use. |
@@ -66,13 +66,13 @@ The manual GitHub Actions workflow in `.github/workflows/supabase-migrations.yml
 6. Seed trusted campus places with `bun run sync:places` pointed at the intended database, deploy the app with all server secrets, and confirm reads and cron authentication while writes remain disabled.
 7. Enable `REPORT_WRITES_ENABLED=true` only after a successful manual smoke test and the public-role checks below.
 
-The production project is not linked to the local Supabase CLI, and no hosted migration has been applied or verified during this task. Do not assume current remote state from old deployment notes.
+On 2026-09-27, the production migration workflow successfully applied the current migrations, including `20260928070000_community_demo_road_points.sql`, and `bun run sync:places` loaded 219 checked-in UW places through the transaction pooler. The Vercel production deployment returned HTTP 200 for community updates, map reports, campus place search, Ask Badger, report interpretation, and AI community drafting. The AI draft resolved “Science Hall” from a live description. Recheck these endpoints after future schema or credential changes.
 
 The route planner sends only the two selected trusted campus-place coordinates to OpenRouteService for walking directions; it never sends browser GPS. The returned candidate path is checked against current unverified community observations. A clear route result does not establish safety, accessibility, open entrances, or absence of hazards. The directions provider requires an optional server-side `OPENROUTESERVICE_API_KEY`; the client never receives it.
 
 ## Scheduled jobs
 
-`supabase/migrations/20260928030000_schedule_report_expiry.sql` enables Supabase Postgres Cron and schedules report expiry every ten minutes. This keeps category TTLs and the one-day stale window accurate without relying on a Vercel plan that supports frequent jobs. The migration is local-tested; apply and verify it on staging before production.
+`supabase/migrations/20260928030000_schedule_report_expiry.sql` enables Supabase Postgres Cron and schedules report expiry every ten minutes. This keeps category TTLs and the one-day stale window accurate without relying on a Vercel plan that supports frequent jobs. The production migration workflow applied it on 2026-09-27.
 
 `vercel.json` schedules `/api/cron/import-events` once per day at 04:15 UTC. This is compatible with Vercel Hobby, which allows each cron job to run only once per day; see [Vercel Cron usage and pricing](https://vercel.com/docs/cron-jobs/usage-and-pricing). Vercel invokes configured cron jobs on production deployments, not previews, and sends `CRON_SECRET` as the bearer authorization value. The import endpoint rejects requests unless that value exists and matches. Event cache misses also refresh UW Today on demand, so this schedule is a cache warm-up rather than the only source of fresh events.
 
