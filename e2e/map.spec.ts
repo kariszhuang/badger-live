@@ -283,7 +283,7 @@ test("campus directory searches by disciplines and opens building details", asyn
   await expect(dialog.getByText(/FP&M #0050/)).toHaveCount(0);
   await expect(dialog.locator(".building-description")).toHaveText("Campus leadership and central administration, including the Chancellor and Provost offices.");
   await expect(dialog.getByRole("link", { name: /Directions in Google Maps/ })).toHaveAttribute("href", "https://www.google.com/maps/dir/?api=1&destination=43.07534639770641%2C-89.40433580443906");
-  await expect(dialog.locator(".building-topic-tags")).toContainText("Campus operations");
+  await expect(dialog.locator(".building-topic-tags")).toContainText("Campus administration");
   await dialog.getByRole("button", { name: /All campus buildings/ }).click();
   await expect(dialog.getByPlaceholder("Search buildings, places, or uses")).toBeVisible();
   await dialog.getByPlaceholder("Search buildings, places, or uses").fill("microbiology");

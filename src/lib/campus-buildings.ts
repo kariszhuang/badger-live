@@ -71,11 +71,10 @@ export function parseCampusBuildings(input: unknown): CampusBuildings {
       properties: {
         ...feature.properties,
         shortDescription: feature.properties.shortDescription ?? campusBuildingDescriptions[feature.properties.mapObjectId],
-        tags: feature.properties.tags ?? campusBuildingTags({
-          name: feature.properties.name,
-          shortDescription: feature.properties.shortDescription ?? campusBuildingDescriptions[feature.properties.mapObjectId] ?? feature.properties.name,
-          streetAddress: feature.properties.streetAddress,
-        }),
+        tags: campusBuildingTags(
+          feature.properties.shortDescription ?? campusBuildingDescriptions[feature.properties.mapObjectId] ?? "",
+          feature.properties.mapObjectId,
+        ),
       },
     })),
   };
