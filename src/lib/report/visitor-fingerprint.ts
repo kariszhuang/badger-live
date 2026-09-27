@@ -14,6 +14,12 @@ function hmac(value: string) {
   return createHmac("sha256", secret).update(value).digest("hex");
 }
 
+function capabilitySecret() {
+  const secret = process.env.REPORT_CAPABILITY_HMAC_KEY;
+  if (!secret || Buffer.byteLength(secret) < 32) throw new FingerprintConfigurationError();
+  return secret;
+}
+
 function clientNetwork(request: NextRequest) {
   const vercel = request.headers.get("x-vercel-forwarded-for");
   const cloudflare = request.headers.get("cf-connecting-ip");
@@ -29,7 +35,7 @@ export function createRequestFingerprints(request: NextRequest, visitorId: strin
 }
 
 export function createCapabilityToken(reportId: string) {
-  return createHmac("sha256", process.env.REPORT_CAPABILITY_HMAC_KEY || "")
+  return createHmac("sha256", capabilitySecret())
     .update(`undo:${reportId}`)
     .digest("base64url");
 }
@@ -39,8 +45,7 @@ export function createCapabilityHash(token: string) {
 }
 
 export function deterministicReportId(batchId: string, itemIndex: number) {
-  const key = process.env.REPORT_CAPABILITY_HMAC_KEY;
-  if (!key || Buffer.byteLength(key) < 32) throw new FingerprintConfigurationError();
+  const key = capabilitySecret();
   const bytes = createHmac("sha256", key).update(`report:${batchId}:${itemIndex}`).digest().subarray(0, 16);
   bytes[6] = (bytes[6] & 0x0f) | 0x40;
   bytes[8] = (bytes[8] & 0x3f) | 0x80;
