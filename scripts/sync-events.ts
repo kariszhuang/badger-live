@@ -4,8 +4,12 @@ import { normalizeEvents } from "../src/lib/events";
 import { EVENT_CACHE_TTL_MS } from "../src/lib/event-cache-policy";
 
 const date = process.argv[2] || chicagoDate();
+const databaseUrl = process.env.DATABASE_URL;
 if (!isValidDate(date)) {
   console.error("Usage: bun run sync:events [YYYY-MM-DD]");
+  process.exitCode = 1;
+} else if (!databaseUrl) {
+  console.error("Set DATABASE_URL explicitly before syncing events; the script will not guess which database to write to.");
   process.exitCode = 1;
 } else {
   try {
@@ -18,7 +22,7 @@ if (!isValidDate(date)) {
     const events = normalizeEvents(raw);
     if (!Array.isArray(raw) || (raw.length > 0 && events.length === 0)) throw new Error("UW calendar records were invalid");
 
-    const sql = postgres(process.env.DATABASE_URL || "postgresql://postgres:postgres@127.0.0.1:54322/postgres", { max: 1, connect_timeout: 2, prepare: false });
+    const sql = postgres(databaseUrl, { max: 1, connect_timeout: 10, prepare: false });
     const fetchedAt = new Date();
     const expiresAt = new Date(fetchedAt.valueOf() + EVENT_CACHE_TTL_MS);
     try {
@@ -32,9 +36,9 @@ if (!isValidDate(date)) {
     } finally {
       await sql.end();
     }
-    console.log(`Cached ${events.length} verified UW calendar events for ${date} in local Supabase.`);
+    console.log(`Cached ${events.length} verified UW calendar events for ${date} in Supabase.`);
   } catch {
-    console.error(`Could not refresh UW events for ${date}. Check the UW API and local Supabase status.`);
+    console.error(`Could not refresh UW events for ${date}. Check UW Today and the configured Supabase database connection.`);
     process.exitCode = 1;
   }
 }

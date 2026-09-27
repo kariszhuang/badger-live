@@ -33,7 +33,7 @@ function database() {
 
 function unavailable(operation: string) {
   retryAfter = Date.now() + 15_000;
-  console.warn(`Local Supabase safety queue ${operation} failed; no report content was returned.`);
+  console.warn(`Supabase Postgres safety queue ${operation} failed; no report content was returned.`);
 }
 
 export class SafetyStoreError extends Error {
