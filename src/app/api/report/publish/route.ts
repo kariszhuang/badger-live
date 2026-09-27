@@ -111,6 +111,7 @@ export async function POST(request: NextRequest) {
       return jsonResponse({
         outcome: "posted",
         postedCount: previousReceipt.reports.filter((report) => report.undoAvailable).length,
+        recheckedCount: previousReceipt.reports.filter((report) => report.recheckStatus === "counted").length,
         reports: previousReceipt.reports,
         capabilities,
         idempotent: true,
@@ -244,6 +245,7 @@ export async function POST(request: NextRequest) {
     return jsonResponse({
       outcome: "posted",
       postedCount: issues.filter((issue) => actions.get(issue.itemIndex)?.action === "new").length,
+      recheckedCount: published.reports.filter((report) => report.recheckStatus === "counted").length,
       reports: published.reports,
       capabilities,
       idempotent: published.idempotent,

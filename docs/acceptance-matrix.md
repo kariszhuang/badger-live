@@ -36,6 +36,7 @@ This is the implementation tracker for [`Badger_Live_Complete_Master_Plan.md`](.
 | 15 | Original photos, raw text, and capability secrets are absent from public API/map payloads | Local verified | Photo processing stays in memory; stored fields and DTOs are constrained; undo secrets are returned only to the submitting browser and only their hashes are stored. |
 | 16 | Missing actionable issue or vague observation time asks one question before publication | Local verified | Publish-route tests assert follow-up responses happen before duplicate lookup/write, including an empty issue list. Desktop/mobile browser tests verify the time answer is required and retained with the draft for an explicit retry; no publish endpoint reached the real database. |
 | 17 | A past time on one issue does not block a separate current issue in the same message | Local verified | Publish-route tests verify current ice and explicitly dated light reports proceed together without a spurious follow-up, and that a model-marked unknown time targets its own issue index. |
+| 18 | Choosing Same issue records a recheck and reports it accurately | Local verified | Publish-route coverage checks `recheckedCount` separately from new rows; desktop/mobile Playwright coverage verifies the receipt says `1 observation added`, with no misleading `0 reports posted` text. |
 
 ## External verification still required
 
@@ -44,6 +45,7 @@ This is the implementation tracker for [`Badger_Live_Complete_Master_Plan.md`](.
 - Verify GPS and keyboard behavior on actual phones, then run a two-browser session on separate networks.
 - Verify hosted Supabase key roles, production rate limiting, HMAC values, cron schedules, allowed MapTiler referrers, and the write kill switch before enabling writes.
 - The currently running local Next server inherits a remote `DATABASE_URL` from `.env.development.local`; its place-search API returned 503. Use an isolated local-DB configuration for further database-backed browser checks, and do not use that server for publish tests.
+- The read-only `https://badgerlive.vercel.app/` review on 2026-09-27 showed the earlier Events/Crime interface without the local reporting and Ask Badger features. The feature branch still needs an authorized hosted deployment before these local acceptance results can be demonstrated at the target URL.
 - Deployment and production data changes require explicit project authorization and are outside local verification.
 
 For current automated and browser-check details, see the [implementation journal](./implementation-journal.md). Update this matrix when an acceptance scenario gains new evidence; do not convert an external requirement to “verified” based on a mock.

@@ -511,6 +511,37 @@ test("report time follow-up keeps the draft and requires an answer before retry"
   expect(submissions[1].text).toBe(`${description}\nabout 20 minutes ago`);
 });
 
+test("same-issue receipt reports the added observation instead of zero reports", async ({ page }) => {
+  const candidateId = "00000000-0000-4000-8000-000000000555";
+  const publishTime = "2026-09-27T12:00:00.000Z";
+  const submissions: Array<Record<string, unknown>> = [];
+  await page.route("**/api/report/publish", async (route) => {
+    const submission = route.request().postDataJSON() as Record<string, unknown>;
+    submissions.push(submission);
+    const result = submissions.length === 1
+      ? { outcome: "possible_duplicates", issues: [{ itemIndex: 0, title: "Icy surface", candidates: [{ id: candidateId, kind: "ice", title: "Icy surface", coordinates: [-89.407, 43.071], placeId: null, locationMethod: "pin", locationAccuracyM: null, lifecycle: "active", observationCount: 1, lastObservedAt: publishTime }] }] }
+      : { outcome: "posted", postedCount: 0, recheckedCount: 1, idempotent: false, reports: [{ id: candidateId, kind: "ice", title: "Icy surface", coordinates: [-89.407, 43.071], placeId: null, locationMethod: "pin", locationAccuracyM: null, reportedSeverity: "unknown", observationLabel: "unverified", lifecycle: "active", observationCount: 2, observedAt: publishTime, lastObservedAt: publishTime, expiresAt: "2026-09-27T13:00:00.000Z", version: 2, recheckStatus: "counted" }], capabilities: [] };
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(result) });
+  });
+
+  await page.goto("/?date=2026-09-27");
+  await waitForBuildingMap(page);
+  await page.getByRole("button", { name: "Report here" }).click();
+  const report = page.getByRole("dialog");
+  await report.getByLabel("What did you see?").fill("Icy here");
+  await report.getByRole("button", { name: "Send report" }).click();
+  await expect(report.getByText("POSSIBLE NEARBY MATCH")).toBeVisible();
+  await report.getByRole("button", { name: /Same issue/ }).click();
+  await report.getByRole("button", { name: "Confirm choices & send" }).click();
+
+  await expect(report.getByRole("heading", { name: "Observation added" })).toBeVisible();
+  await expect(report.getByText("1 observation added", { exact: true })).toBeVisible();
+  await expect(report.locator(".report-receipt-card small")).toContainText("Observation added");
+  await expect(report.getByText(/0 reports posted/)).toHaveCount(0);
+  expect(submissions).toHaveLength(2);
+  expect(submissions[1].duplicateDecisions).toEqual([{ itemIndex: 0, choice: "same", reportId: candidateId }]);
+});
+
 test("campus building footprints load and open details directly from the map", async ({ page }) => {
   const buildingsResponse = page.waitForResponse((response) => response.url().endsWith("/data/uw-campus-buildings.geojson") && response.ok());
   await page.goto("/?date=2026-09-26");

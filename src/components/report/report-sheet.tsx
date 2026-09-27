@@ -19,7 +19,8 @@ type Props = {
   onViewReport: (report: HazardReport) => void;
 };
 
-type PostedResult = { outcome: "posted"; postedCount: number; reports: HazardReport[]; capabilities: Array<{ reportId: string; token: string }>; idempotent: boolean };
+type ReceiptReport = HazardReport & { recheckStatus?: "counted" | "recently-counted" };
+type PostedResult = { outcome: "posted"; postedCount: number; recheckedCount: number; reports: ReceiptReport[]; capabilities: Array<{ reportId: string; token: string }>; idempotent: boolean };
 
 const kindLabels: Record<HazardKind, string> = {
   ice: "Ice", snow: "Snow", flooding: "Standing water", blocked_path: "Blocked walkway",
@@ -33,6 +34,24 @@ function errorText(value: unknown, fallback: string) {
 
 function isTimeFollowup(question: string) {
   return /\bwhen did you see|when did you observe|what time\b/i.test(question);
+}
+
+function receiptTitle(receipt: PostedResult) {
+  if (receipt.postedCount === 0) return receipt.recheckedCount > 0 ? "Observation added" : "Observation already counted";
+  return receipt.postedCount === 1 ? "Report posted" : "Reports posted";
+}
+
+function receiptSummary(receipt: PostedResult) {
+  const details: string[] = [];
+  if (receipt.postedCount > 0) details.push(`${receipt.postedCount} ${receipt.postedCount === 1 ? "report" : "reports"} posted`);
+  if (receipt.recheckedCount > 0) details.push(`${receipt.recheckedCount} ${receipt.recheckedCount === 1 ? "observation" : "observations"} added`);
+  return details.join(" · ") || "Your recent observation is already counted.";
+}
+
+function receiptDescription(receipt: PostedResult) {
+  if (receipt.postedCount > 0) return "Your submission is visible as an unverified community observation.";
+  if (receipt.recheckedCount > 0) return "An existing unverified campus report now has another anonymous observation.";
+  return "Your recent observation was already counted.";
 }
 
 function readFileAsDataUrl(blob: Blob) {
@@ -276,17 +295,19 @@ export function ReportSheet({ open, onOpenChange, initialText = "", pinCoordinat
     <DialogContent className="report-dialog">
       <DialogHeader className="report-dialog-header">
         <span className="report-kicker"><MapPin size={14} /> UNVERIFIED CAMPUS OBSERVATION</span>
-        <DialogTitle>{receipt ? "Report posted" : "Report a campus condition"}</DialogTitle>
-        <DialogDescription>{receipt ? "Your report is visible as an unverified community observation." : "Describe a visible physical condition. Your original message and photo are not published or saved."}</DialogDescription>
+        <DialogTitle>{receipt ? receiptTitle(receipt) : "Report a campus condition"}</DialogTitle>
+        <DialogDescription>{receipt ? receiptDescription(receipt) : "Describe a visible physical condition. Your original message and photo are not published or saved."}</DialogDescription>
       </DialogHeader>
 
       {receipt ? <div className="report-receipt">
-        <div className="report-receipt-summary"><span className="report-receipt-check"><Check size={19} /></span><div><strong>{receipt.postedCount} {receipt.postedCount === 1 ? "report" : "reports"} posted</strong><small>Unverified · anonymous browser observations</small></div></div>
+        <div className="report-receipt-summary"><span className="report-receipt-check"><Check size={19} /></span><div><strong>{receiptSummary(receipt)}</strong><small>Unverified · anonymous browser observations</small></div></div>
         <div className="report-receipt-list">{receipt.reports.map((report) => <article className="report-receipt-card" key={report.id}>
-          <div><strong>{report.title}</strong><small>{kindLabels[report.kind]} · Unverified · {report.locationMethod === "gps" ? "Approximate GPS" : report.locationMethod === "pin" ? "Map point" : "Campus place"}</small></div>
+          <div><strong>{report.title}</strong><small>{kindLabels[report.kind]} · Unverified · {report.locationMethod === "gps" ? "Approximate GPS" : report.locationMethod === "pin" ? "Map point" : "Campus place"}{report.recheckStatus === "counted" ? " · Observation added" : report.recheckStatus === "recently-counted" ? " · Recent observation already counted" : ""}</small></div>
           <div className="report-receipt-actions"><button type="button" onClick={() => onViewReport(report)}>View on map</button>{receipt.capabilities.some((item) => item.reportId === report.id) && <button type="button" className="report-undo-button" onClick={() => void undo(report.id)}><RotateCcw size={13} />Undo</button>}</div>
         </article>)}</div>
-        <p className="report-privacy-note">Undo is available in this browser for 30 minutes. Keep this tab open if you may need it.</p>
+        {receipt.capabilities.length > 0
+          ? <p className="report-privacy-note">Undo is available in this browser for 30 minutes. Keep this tab open if you may need it.</p>
+          : <p className="report-privacy-note">Anonymous observation counts do not prove independent confirmation.</p>}
         {error && <p className="report-error" role="alert">{error}</p>}
         <button className="report-primary-button" type="button" onClick={() => { setReceipt(null); setError(""); requestGps(); }}>Report another condition</button>
       </div> : <form className="report-form" onSubmit={send}>

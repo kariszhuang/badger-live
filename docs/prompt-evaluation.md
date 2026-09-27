@@ -8,7 +8,7 @@ The report prompt is a semantic parser only. It receives untrusted text, a bound
 
 Ask Badger has a separate read-only prompt. The UI now tells the user that their question and selected campus source data are sent to OpenAI for processing, and that Badger Live does not save the question. Report mode similarly discloses that text and optional photos go to OpenAI for analysis, while Badger Live does not save or publicly display them. The OpenAI Responses requests set `store: false`; this is not a claim about provider-side abuse-monitoring retention.
 
-The official [Using GPT-6 guide](https://developers.openai.com/api/docs/guides/latest-model) says its prompting examples are a starting point for the model family and should be evaluated with the chosen model and workload. It describes behavior observed with Astra, so it does not establish GPT-6 Luna performance. Badger Live therefore keeps live model evaluation separate from prompt-string tests and mocked API tests.
+The official [Using GPT-6 guide](https://developers.openai.com/api/docs/guides/latest-model) says its prompting examples are a starting point for the model family and should be evaluated with the chosen model and workload. It describes behavior observed with Astra, so it does not establish GPT-6 Luna performance. The [GPT-6 Luna model page](https://developers.openai.com/api/docs/models/gpt-6-luna) lists the Responses API, image input, and Structured Outputs; those capabilities match the integration, but do not establish account access or prompt quality. Badger Live therefore keeps live model evaluation separate from prompt-string tests and mocked API tests.
 
 ## Synthetic evaluation set
 

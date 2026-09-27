@@ -151,7 +151,7 @@ describe("POST /api/report/publish", () => {
     const body = await response.json();
 
     expect(body).toMatchObject({
-      outcome: "posted", postedCount: 1, idempotent: true,
+      outcome: "posted", postedCount: 1, recheckedCount: 0, idempotent: true,
       reports: [{ id: reportId, observationLabel: "unverified" }],
       capabilities: [{ reportId, token: `${reportId}.undo-token` }],
     });
@@ -275,5 +275,28 @@ describe("POST /api/report/publish", () => {
     expect(body).toMatchObject({ outcome: "possible_duplicates" });
     expect(body.issues).toHaveLength(1);
     expect(mocks.publishHazardBatch).not.toHaveBeenCalled();
+  });
+
+  it("counts a confirmed same-issue recheck separately from a new report", async () => {
+    const candidateId = "00000000-0000-4000-8000-000000000555";
+    mocks.candidates = [{ id: candidateId, kind: "ice", title: "Icy surface", coordinates: [-89.407, 43.071], placeId: null, locationMethod: "pin", locationAccuracyM: null, lifecycle: "active", observationCount: 1, lastObservedAt: new Date().toISOString() }];
+    mocks.publishHazardBatch.mockResolvedValue({
+      idempotent: false,
+      reports: [{
+        id: candidateId, kind: "ice", title: "Icy surface", coordinates: [-89.407, 43.071], placeId: null,
+        locationMethod: "pin", locationAccuracyM: null, reportedSeverity: "unknown", observationLabel: "unverified",
+        lifecycle: "active", observationCount: 2, observedAt: new Date().toISOString(), lastObservedAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(), version: 2, undoAvailable: false, recheckStatus: "counted",
+      }],
+    });
+
+    const response = await POST(makeRequest({ text: "Icy here", location: { method: "pin", longitude: -89.407, latitude: 43.071 }, duplicateDecisions: [{ itemIndex: 0, choice: "same", reportId: candidateId }] }));
+    const body = await response.json();
+
+    expect(body).toMatchObject({ outcome: "posted", postedCount: 0, recheckedCount: 1, reports: [{ id: candidateId, recheckStatus: "counted" }] });
+    expect(mocks.publishHazardBatch).toHaveBeenCalledWith(expect.objectContaining({
+      items: [expect.objectContaining({ action: "still_there", report_id: candidateId })],
+      capabilityHashes: [],
+    }));
   });
 });
