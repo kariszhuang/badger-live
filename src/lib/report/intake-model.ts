@@ -2,7 +2,7 @@ import { intakePlanSchema, intakePlanJsonSchema } from "./structured-schema";
 import { createReportIntakeSystemPrompt } from "./prompts";
 import type { CampusPlace, IntakePlan } from "./types";
 import { callOpenAI, moderationResultSchema, OpenAIServiceError, parseOpenAIStructuredOutput } from "./openai-client";
-import { rankCampusPlaces } from "@/lib/campus-place-catalog";
+import { explicitlyNamedCampusPlaces, rankCampusPlaces } from "@/lib/campus-place-catalog";
 
 // Server-only callers and the local prompt-evaluation CLI share this exact API
 // boundary so an evaluation cannot silently drift from production's prompt/schema.
@@ -43,7 +43,8 @@ export async function interpretReport(input: {
   if (!apiKey) throw new IntakeServiceError("not-configured");
   const now = input.now || new Date();
   const system = createReportIntakeSystemPrompt(now);
-  const rankedPlaces = rankCampusPlaces(input.places, input.text, 20);
+  const namedPlaces = explicitlyNamedCampusPlaces(input.places, input.text, 20);
+  const rankedPlaces = namedPlaces.length ? namedPlaces : rankCampusPlaces(input.places, input.text, 20);
   const candidates = (rankedPlaces.length ? rankedPlaces : input.places.slice(0, 20)).map(({ sourcePlaceId, name, aliases, coordinates }) => ({
     id: sourcePlaceId,
     name,

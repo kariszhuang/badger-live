@@ -83,6 +83,17 @@ export function localCampusPlaceFallback() {
   return getCatalog().map((place) => ({ ...place }));
 }
 
+export function explicitlyNamedCampusPlaces(places: CampusPlace[], text: string, limit = 20): CampusPlace[] {
+  const message = " " + normalize(text) + " ";
+  return places.map((place) => {
+    const names = [place.name, ...place.aliases].map(normalize).filter((name) => name.length >= 6);
+    const longestMention = Math.max(0, ...names.filter((name) => message.includes(" " + name + " ")).map((name) => name.length));
+    return { place, longestMention };
+  }).filter((item) => item.longestMention > 0)
+    .sort((a, b) => b.longestMention - a.longestMention || a.place.name.localeCompare(b.place.name))
+    .slice(0, limit).map((item) => item.place);
+}
+
 export function searchLocalCampusPlaces(query: string, limit = 12): CampusPlace[] {
   return rankCampusPlaces(getCatalog(), query, limit);
 }
