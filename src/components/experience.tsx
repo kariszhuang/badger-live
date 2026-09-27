@@ -12,6 +12,7 @@ import { parseCampusBuildings, type CampusBuilding, type CampusBuildings } from 
 import { campusEventsAtBuilding, googleMapsDirectionsUrl } from "@/lib/campus-building-events";
 import { matchesCampusBuildingSearch } from "@/lib/campus-building-tags";
 import type { EventsResult } from "@/lib/uw-events-api";
+import { readClientEventDay, writeClientEventDay, type ClientEventDayCache } from "@/lib/client-event-day-cache";
 import { EventCard } from "./event-card";
 import { CampusBuildingPhoto } from "./campus-building-photo";
 import { SafetyCenter } from "./safety-center";
@@ -29,6 +30,7 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
   const [date, setDate] = useState(initialDate);
   const [mode, setMode] = useState<DiscoveryMode>(initialMode);
   const [data, setData] = useState<EventsResult | null>(initial);
+  const dayCache = useRef<ClientEventDayCache<DayResponse>>(new Map());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(!initial);
   const [query, setQuery] = useState("");
@@ -92,15 +94,32 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
   }, [refreshSafetyReports]);
 
   useEffect(() => {
-    if (date === initialDate) return;
+    if (initial) writeClientEventDay(dayCache.current, initialDate, { ...initial, date: initialDate });
+  }, [initial, initialDate]);
+
+  useEffect(() => {
+    const cached = readClientEventDay(dayCache.current, date);
+    if (cached) {
+      setData(cached);
+      setError(false);
+      setLoading(false);
+      return;
+    }
+
     const controller = new AbortController();
+    setLoading(true);
     fetch(`/api/events?date=${encodeURIComponent(date)}`, { signal: controller.signal })
       .then(async (response) => { if (!response.ok) throw new Error("Calendar unavailable"); return response.json() as Promise<DayResponse>; })
-      .then((result) => { setData(result); setError(false); })
+      .then((result) => {
+        if (controller.signal.aborted) return;
+        writeClientEventDay(dayCache.current, date, result);
+        setData(result);
+        setError(false);
+      })
       .catch((reason) => { if (reason instanceof Error && reason.name !== "AbortError") setError(true); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [date, initialDate]);
+  }, [date]);
 
   useEffect(() => {
     if (mode !== "crime") return;
@@ -155,7 +174,17 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
     window.history.replaceState({}, "", url);
   };
 
-  const chooseDate = (value: string) => { if (!isValidDate(value)) return; setLoading(true); setError(false); setData(null); setSelectedId(null); setSelectedGroupId(null); setDate(value); updateUrl(value, null); };
+  const chooseDate = (value: string) => {
+    if (!isValidDate(value)) return;
+    const cached = readClientEventDay(dayCache.current, value);
+    setLoading(!cached);
+    setError(false);
+    setData(cached);
+    setSelectedId(null);
+    setSelectedGroupId(null);
+    setDate(value);
+    updateUrl(value, null);
+  };
   const chooseCategory = (value: FilterCategory) => { setCategory(value); setSelectedId(null); setSelectedGroupId(null); updateUrl(date, null); };
   const search = (value: string) => { setQuery(value); setSelectedId(null); setSelectedGroupId(null); updateUrl(date, null); };
   const events = useMemo(() => data?.events || [], [data]);

@@ -57,6 +57,28 @@ test("real calendar, filters, source and date navigation", async ({ page }, test
   expect(errors).toEqual([]);
 });
 
+test("returning to the initially loaded date clears the calendar loading state", async ({ page }) => {
+  const requestedEventDates: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === "/api/events") requestedEventDates.push(url.searchParams.get("date") ?? "");
+  });
+  await page.goto("/?date=2026-09-26");
+  const countLine = page.locator(".count-line");
+  await expect(countLine).toContainText("20 events");
+
+  await page.getByRole("button", { name: "Previous day" }).click();
+  await expect(page).toHaveURL(/date=2026-09-25/);
+  await expect(countLine).not.toHaveText("Loading official calendar…");
+  expect(requestedEventDates).toEqual(["2026-09-25"]);
+
+  await page.getByRole("button", { name: "Next day" }).click();
+  await expect(page).toHaveURL(/date=2026-09-26/);
+  expect(requestedEventDates).toEqual(["2026-09-25"]);
+  await expect(countLine).not.toHaveText("Loading official calendar…");
+  await expect(countLine).toContainText("20 events");
+});
+
 test("map and official event detail", async ({ page }, testInfo) => {
   let vectorTiles = 0;
   const errors: string[] = [];
