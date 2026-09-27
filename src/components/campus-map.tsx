@@ -10,11 +10,10 @@ import type { CommunitySafetyReport } from "@/lib/safety";
 import { findCampusBuildingAt, type CampusBuilding, type CampusBuildings } from "@/lib/campus-buildings";
 import { CAMPUS_MAP_BOUNDS } from "@/lib/campus-map-bounds";
 import { type CrimeCategory, type CrimeVenueGroup } from "@/lib/crime-model";
-import { hasVisibleMapPoint, type ScreenRect } from "@/lib/map-visibility";
 import { CAMPUS_BUILDING_FILL_PAINT, campusBuildingLayerInsertionPoints } from "@/lib/campus-building-map-style";
 import { CrimeCategoryIcon, SafetyCategoryIcon } from "./category-icons";
 
-type Props = { groups: VenueGroup[]; selectedGroupId: string | null; liveGroupIds: string[]; crimeGroups: CrimeVenueGroup[]; selectedCrimeGroupId: string | null; onSelectCrimeGroup: (id: string) => void; safetyReports: CommunitySafetyReport[]; selectedSafetyReportId: string | null; angled: boolean; onSelect: (id: string) => void; onSelectSafetyReport: (id: string) => void; focus: [number, number] | null; sheetLevel: "closed" | "half" | "full"; userLocation: [number, number] | null; fitSignal: number; autoFitSignal: number; campusSignal: number; mapKey: string; buildings: CampusBuildings | null; selectedBuildingId: string | null; onSelectBuilding: (building: CampusBuilding, coordinates: [number, number]) => void };
+type Props = { groups: VenueGroup[]; selectedGroupId: string | null; liveGroupIds: string[]; crimeGroups: CrimeVenueGroup[]; selectedCrimeGroupId: string | null; onSelectCrimeGroup: (id: string) => void; safetyReports: CommunitySafetyReport[]; selectedSafetyReportId: string | null; onSelect: (id: string) => void; onSelectSafetyReport: (id: string) => void; focus: [number, number] | null; sheetLevel: "closed" | "half" | "full"; userLocation: [number, number] | null; campusSignal: number; mapKey: string; buildings: CampusBuildings | null; selectedBuildingId: string | null; onSelectBuilding: (building: CampusBuilding, coordinates: [number, number]) => void };
 const CENTER: [number, number] = [-89.405, 43.075];
 const BUILDING_SOURCE = "uw-campus-buildings";
 const BUILDING_FILL = "uw-campus-building-fill";
@@ -35,7 +34,7 @@ const ICON_PATHS: Record<EventCategory, string[]> = {
 };
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, selectedCrimeGroupId, onSelectCrimeGroup, safetyReports, selectedSafetyReportId, onSelectSafetyReport, angled, onSelect, focus, sheetLevel, userLocation, fitSignal, autoFitSignal, campusSignal, mapKey, buildings, selectedBuildingId, onSelectBuilding }: Props) {
+export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, selectedCrimeGroupId, onSelectCrimeGroup, safetyReports, selectedSafetyReportId, onSelectSafetyReport, onSelect, focus, sheetLevel, userLocation, campusSignal, mapKey, buildings, selectedBuildingId, onSelectBuilding }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const markers = useRef<Marker[]>([]);
@@ -54,20 +53,18 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
   const previousSelectedBuildingId = useRef<string | null>(null);
   const installBuildingHandlers = useRef<(() => void) | null>(null);
   const buildingHandlersAttached = useRef(false);
-  const angledRef = useRef(angled);
   useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
   useEffect(() => { onSelectSafetyReportRef.current = onSelectSafetyReport; }, [onSelectSafetyReport]);
   useEffect(() => { onSelectCrimeGroupRef.current = onSelectCrimeGroup; }, [onSelectCrimeGroup]);
   useEffect(() => { onSelectBuildingRef.current = onSelectBuilding; }, [onSelectBuilding]);
   useEffect(() => { buildingsRef.current = buildings; }, [buildings]);
   useEffect(() => { selectedBuildingIdRef.current = selectedBuildingId; }, [selectedBuildingId]);
-  useEffect(() => { angledRef.current = angled; }, [angled]);
 
   useEffect(() => {
     if (!container.current || map.current) return;
     maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
     const style = mapKey ? `https://api.maptiler.com/maps/streets-v4/style.json?key=${encodeURIComponent(mapKey)}` : "https://tiles.openfreemap.org/styles/liberty";
-    const instance = new maplibregl.Map({ container: container.current, style, center: CENTER, zoom: 14.25, minZoom: 11.5, maxZoom: 17, maxBounds: CAMPUS_MAP_BOUNDS, maxPitch: 60, attributionControl: false, pitchWithRotate: false, dragRotate: false });
+    const instance = new maplibregl.Map({ container: container.current, style, center: CENTER, zoom: 14.25, minZoom: 11.5, maxZoom: 17, maxBounds: CAMPUS_MAP_BOUNDS, maxPitch: 0, attributionControl: false, pitchWithRotate: false, dragRotate: false });
     instance.addControl(new maplibregl.AttributionControl({ compact: false }), "bottom-right");
     const attachHandlersWhenReady = () => {
       if (buildingHandlersAttached.current) return;
@@ -118,7 +115,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
       attachHandlersWhenReady();
     };
     instance.on("style.load", () => {
-      applyCampusPalette(instance, angledRef.current);
+      applyCampusPalette(instance);
       if (instance.isStyleLoaded()) syncCampusBuildings();
       else instance.once("idle", syncCampusBuildings);
     });
@@ -321,84 +318,8 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
     }
     instance.flyTo({ center: focus, zoom: Math.max(instance.getZoom(), 15), offset, essential: true });
   }, [focus, sheetLevel]);
-  useEffect(() => {
-    const instance = map.current;
-    if (!autoFitSignal || !instance || !instance.isStyleLoaded() || groups.length === 0) return;
-
-    const containerBounds = instance.getContainer().getBoundingClientRect();
-    const width = containerBounds.width;
-    const height = containerBounds.height;
-    const viewport = usableMapViewport(containerBounds, sheetLevel);
-    if (viewport.right - viewport.left < 120 || viewport.bottom - viewport.top < 120) return;
-    const visiblePoints = groups.map((group) => {
-      const projected = instance.project(group.coordinates);
-      return { x: projected.x, y: projected.y };
-    });
-    if (hasVisibleMapPoint(visiblePoints, viewport)) return;
-
-    const padding = {
-      top: viewport.top + 28,
-      right: width - viewport.right + 28,
-      bottom: height - viewport.bottom + 28,
-      left: viewport.left + 28,
-    };
-    if (groups.length === 1) {
-      const center = [(viewport.left + viewport.right) / 2, (viewport.top + viewport.bottom) / 2] as const;
-      instance.flyTo({
-        center: groups[0].coordinates,
-        zoom: Math.min(15.5, Math.max(instance.getZoom(), 14.5)),
-        offset: [center[0] - width / 2, center[1] - height / 2],
-        duration: 650,
-        essential: true,
-      });
-      return;
-    }
-
-    const bounds = new maplibregl.LngLatBounds();
-    groups.forEach(({ coordinates }) => bounds.extend(coordinates));
-    instance.fitBounds(bounds, { padding, maxZoom: 15.5, duration: 650 });
-  }, [autoFitSignal, groups, sheetLevel]);
-  useEffect(() => {
-    if (!map.current) return;
-    const instance = map.current;
-    applyCampusPalette(instance, angled);
-    if (angled) instance.flyTo({ center: instance.getCenter(), zoom: Math.max(instance.getZoom(), 15.5), pitch: 48, bearing: -15, duration: 650 });
-    else instance.easeTo({ pitch: 0, bearing: 0, duration: 550 });
-  }, [angled]);
-  useEffect(() => {
-    const points = [...groups.map(({ coordinates }) => coordinates), ...crimeGroups.map(({ coordinates }) => coordinates)];
-    if (!fitSignal || !map.current || points.length === 0) return;
-    const bounds = new maplibregl.LngLatBounds();
-    points.forEach((coordinates) => bounds.extend(coordinates));
-    map.current.fitBounds(bounds, { padding: 70, maxZoom: 15, duration: 650 });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fitSignal]);
   useEffect(() => { if (campusSignal && map.current) map.current.flyTo({ center: CENTER, zoom: 14.25, essential: true }); }, [campusSignal]);
   return <div ref={container} className="map-canvas" role="application" aria-label="Interactive map of UW–Madison event venues" />;
-}
-
-function usableMapViewport(container: DOMRect, sheetLevel: Props["sheetLevel"]): ScreenRect {
-  const mobile = window.matchMedia("(max-width: 767px)").matches;
-  if (mobile) {
-    const headerBottom = document.querySelector(".discovery-header")?.getBoundingClientRect().bottom ?? container.top;
-    const sheetTop = sheetLevel === "closed"
-      ? container.bottom
-      : document.querySelector(".mobile-sheet")?.getBoundingClientRect().top ?? container.bottom;
-    return {
-      left: 0,
-      top: Math.max(0, headerBottom - container.top),
-      right: container.width,
-      bottom: Math.max(0, sheetTop - container.top),
-    };
-  }
-
-  const panelRight = document.querySelector(".discovery-panel")?.getBoundingClientRect().right ?? container.left;
-  return {
-    left: Math.max(0, panelRight - container.left),
-    top: 0,
-    right: container.width,
-    bottom: container.height,
-  };
 }
 
 function addCampusBuildings(instance: MapLibreMap, collection: CampusBuildings | null, selectedBuildingId: string | null) {
@@ -504,16 +425,13 @@ function unmountRoots(roots: Root[]) {
   roots.length = 0;
 }
 
-function applyCampusPalette(instance: MapLibreMap, angled: boolean) {
+function applyCampusPalette(instance: MapLibreMap) {
   if (!instance.isStyleLoaded()) return;
   for (const layer of instance.getStyle().layers) {
     if (layer.id.startsWith("uw-campus-building-")) continue;
     const name = layer.id.toLowerCase();
     if (layer.type === "fill-extrusion" && name.includes("building")) {
-      instance.setPaintProperty(layer.id, "fill-extrusion-color", "#e9decd");
-      instance.setPaintProperty(layer.id, "fill-extrusion-opacity", 0.86);
-      instance.setPaintProperty(layer.id, "fill-extrusion-vertical-gradient", true);
-      instance.setLayoutProperty(layer.id, "visibility", angled ? "visible" : "none");
+      instance.setLayoutProperty(layer.id, "visibility", "none");
     } else if (layer.type === "fill" && name.includes("building")) {
       instance.setPaintProperty(layer.id, "fill-color", "#e8dfd2");
       instance.setPaintProperty(layer.id, "fill-opacity", 0.5);
@@ -524,5 +442,4 @@ function applyCampusPalette(instance: MapLibreMap, angled: boolean) {
       instance.setPaintProperty(layer.id, "fill-color", /forest|wood|vegetation/.test(name) ? "#c7d9c0" : "#cfe2c5");
     }
   }
-  instance.setLight({ anchor: "viewport", color: "#fff8eb", intensity: 0.6, position: [1.15, 210, 35] });
 }

@@ -119,7 +119,7 @@
 .count-line .cache-note{display:block;margin-top:3px;color:#999f99;font-size:9px;font-weight:550}
 .events-scroll{padding:0 11px 34px 18px}
 .snapshot-notice,.error-state,.empty-state,.crime-error-state,.crime-loading-state,.crime-partial-notice{margin-right:17px;margin-left:18px}
-.map-tools{top:14px;right:14px;display:flex;flex-direction:column;gap:7px;padding:5px;border:1px solid #e6e7e1;border-radius:18px;background:#fffefaed;box-shadow:0 8px 22px #20292324;backdrop-filter:blur(12px)}
+.map-tools{top:auto;right:14px;bottom:54px;display:flex;flex-direction:column;gap:7px;padding:5px;border:1px solid #e6e7e1;border-radius:18px;background:#fffefaed;box-shadow:0 8px 22px #20292324;backdrop-filter:blur(12px)}
 .map-tools button{width:42px;height:42px;border-radius:13px;box-shadow:none}
 .map-tools button svg{width:19px;height:19px}
 .maplibregl-control-container .maplibregl-ctrl-bottom-right{right:10px;bottom:9px}

@@ -23,7 +23,6 @@ describe("campus building map fill", () => {
     const layers = [
       { id: "road_one_way_arrow", type: "symbol" },
       { id: "building", type: "fill" },
-      { id: "building-3d", type: "fill-extrusion" },
       { id: "waterway_line_label", type: "symbol" },
     ];
 

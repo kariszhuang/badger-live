@@ -331,16 +331,21 @@ test("location explains that a secure connection is required on LAN devices", as
   await expect(page.getByRole("region", { name: "Campus map" }).getByRole("alert")).toContainText(/location needs a secure connection.*HTTPS/i);
 });
 
-test("the angled campus view toggles cleanly back to 2D without landmark pills", async ({ page }) => {
+test("map controls stay minimal, 2D, and at the bottom", async ({ page }) => {
   await page.goto("/?date=2026-09-26");
-  const angledView = page.getByRole("button", { name: "Switch to angled 3D view" });
-  await angledView.click();
-  const flatView = page.getByRole("button", { name: "Switch to 2D view" });
-  await expect(flatView).toHaveAttribute("aria-pressed", "true");
-  await flatView.click();
-  await expect(page.getByRole("button", { name: "Switch to angled 3D view" })).toHaveAttribute("aria-pressed", "false");
-  await expect(page.locator(".landmark-marker")).toHaveCount(0);
+  await expect(page.locator(".map-tools button")).toHaveCount(3);
+  await expect(page.getByRole("button", { name: "Locate me" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Back to campus" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Safety alerts and resources" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /fit|3d view|2d view/i })).toHaveCount(0);
+
+  const controls = await page.locator(".map-tools").boundingBox();
+  const map = await page.getByRole("region", { name: "Campus map" }).boundingBox();
+  expect(controls).not.toBeNull();
+  expect(map).not.toBeNull();
+  const controlsBottomGap = map!.y + map!.height - (controls!.y + controls!.height);
+  expect(controlsBottomGap).toBeGreaterThanOrEqual(0);
+  expect(controlsBottomGap).toBeLessThan(90);
 });
 
 test("campus safety toolbox prioritizes official help and keeps community reporting private", async ({ page }) => {

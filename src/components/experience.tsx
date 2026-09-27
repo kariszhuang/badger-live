@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, CalendarDays, Check, Compass, Layers, LocateFixed, MapPinned, Navigation, Share2, ShieldAlert, Sparkles, X } from "lucide-react";
+import { ArrowLeft, CalendarDays, Check, Compass, LocateFixed, Navigation, Share2, ShieldAlert, Sparkles, X } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { chicagoDate, eventStatus, formatDay, isValidDate, shiftDate } from "@/lib/chicago-date";
 import { availableCategoriesForSearch, groupVenues, type CampusEvent, type FilterCategory } from "@/lib/events";
@@ -48,10 +48,7 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
   const [selectedCrimeGroupId, setSelectedCrimeGroupId] = useState<string | null>(null);
   const [selectedCrimeIncidentId, setSelectedCrimeIncidentId] = useState<string | null>(null);
   const [sheet, setSheet] = useState<SheetLevel>("closed");
-  const [fitSignal, setFitSignal] = useState(0);
-  const [autoFitSignal, setAutoFitSignal] = useState(0);
   const [campusSignal, setCampusSignal] = useState(0);
-  const [angledMap, setAngledMap] = useState(false);
   const [minuteTick, setMinuteTick] = useState(0);
   const [focus, setFocus] = useState<[number, number] | null>(null);
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
@@ -203,10 +200,9 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
     setCategory("all");
     setSheet("closed");
     setDate(value);
-    setAutoFitSignal((signal) => signal + 1);
     updateUrl(value, null);
   };
-  const chooseCategory = (value: FilterCategory) => { setCategory(value); setSelectedId(null); setSelectedGroupId(null); setAutoFitSignal((signal) => signal + 1); updateUrl(date, null); };
+  const chooseCategory = (value: FilterCategory) => { setCategory(value); setSelectedId(null); setSelectedGroupId(null); updateUrl(date, null); };
   const events = useMemo(() => data?.events || [], [data]);
   const availableEventCategories = useMemo(() => availableCategoriesForSearch(events, query), [events, query]);
   const search = (value: string) => {
@@ -214,7 +210,6 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
     if (category !== "all" && !availableCategoriesForSearch(events, value).includes(category)) setCategory("all");
     setSelectedId(null);
     setSelectedGroupId(null);
-    setAutoFitSignal((signal) => signal + 1);
     updateUrl(date, null);
   };
   const filtered = useMemo(() => events.filter((event) => {
@@ -434,11 +429,9 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
 
   return <main className={`experience ${sheet !== "closed" ? "has-open-sheet" : ""}`}>
     <section className="map-panel" aria-label="Campus map">
-      <CampusMap groups={mode === "events" ? groups : []} selectedGroupId={mode === "events" ? activeGroupId : null} liveGroupIds={mode === "events" ? liveGroupIds : []} crimeGroups={mode === "crime" ? crimeGroups : []} selectedCrimeGroupId={mode === "crime" ? selectedCrimeGroupId : null} onSelectCrimeGroup={selectCrimeGroup} safetyReports={mode === "events" ? safetyReports : []} selectedSafetyReportId={selectedSafetyReportId} onSelectSafetyReport={openSafetyReport} angled={angledMap} onSelect={selectGroup} focus={focus} sheetLevel={sheet} userLocation={userLocation} fitSignal={fitSignal} autoFitSignal={autoFitSignal} campusSignal={campusSignal} mapKey={mapKey} buildings={buildings} selectedBuildingId={selectedBuilding?.mapObjectId || null} onSelectBuilding={selectBuilding} />
+      <CampusMap groups={mode === "events" ? groups : []} selectedGroupId={mode === "events" ? activeGroupId : null} liveGroupIds={mode === "events" ? liveGroupIds : []} crimeGroups={mode === "crime" ? crimeGroups : []} selectedCrimeGroupId={mode === "crime" ? selectedCrimeGroupId : null} onSelectCrimeGroup={selectCrimeGroup} safetyReports={mode === "events" ? safetyReports : []} selectedSafetyReportId={selectedSafetyReportId} onSelectSafetyReport={openSafetyReport} onSelect={selectGroup} focus={focus} sheetLevel={sheet} userLocation={userLocation} campusSignal={campusSignal} mapKey={mapKey} buildings={buildings} selectedBuildingId={selectedBuilding?.mapObjectId || null} onSelectBuilding={selectBuilding} />
       <div className="map-tools">
         <button aria-label="Locate me" title={locating ? "Requesting your location…" : "Request location (permission is requested on tap)"} aria-busy={locating} disabled={locating} className={locating ? "is-locating" : undefined} onClick={locate}><LocateFixed size={19} /></button>
-        <button aria-label={mode === "crime" ? "Fit mapped police blotter locations" : "Fit today's events"} title={mode === "crime" ? "Fit blotter locations" : "Fit events"} onClick={() => setFitSignal((n) => n + 1)}><MapPinned size={19} /></button>
-        <button aria-label={angledMap ? "Switch to 2D view" : "Switch to angled 3D view"} title={angledMap ? "2D map" : "Angled 3D map"} aria-pressed={angledMap} onClick={() => setAngledMap((value) => !value)}><Layers size={19} /></button>
         <button aria-label="Back to campus" title="Back to campus" onClick={() => setCampusSignal((n) => n + 1)}><Compass size={19} /></button>
         <button aria-label="Safety alerts and resources" title="Safety alerts and resources" onClick={() => openSafetyCenter()}><ShieldAlert size={19} /></button>
       </div>
