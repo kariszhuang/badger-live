@@ -5,9 +5,10 @@ import * as maplibregl from "maplibre-gl";
 import type { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
 import type { FeatureCollection } from "geojson";
 import type { EventCategory, VenueGroup } from "@/lib/events";
+import type { CommunitySafetyReport } from "@/lib/safety";
 import { findCampusBuildingAt, type CampusBuilding, type CampusBuildings } from "@/lib/campus-buildings";
 
-type Props = { groups: VenueGroup[]; selectedGroupId: string | null; liveGroupIds: string[]; angled: boolean; onSelect: (id: string) => void; focus: [number, number] | null; userLocation: [number, number] | null; fitSignal: number; campusSignal: number; mapKey: string; buildings: CampusBuildings | null; selectedBuildingId: string | null; onSelectBuilding: (building: CampusBuilding, coordinates: [number, number]) => void };
+type Props = { groups: VenueGroup[]; selectedGroupId: string | null; liveGroupIds: string[]; safetyReports: CommunitySafetyReport[]; selectedSafetyReportId: string | null; angled: boolean; onSelect: (id: string) => void; onSelectSafetyReport: (id: string) => void; focus: [number, number] | null; userLocation: [number, number] | null; fitSignal: number; campusSignal: number; mapKey: string; buildings: CampusBuildings | null; selectedBuildingId: string | null; onSelectBuilding: (building: CampusBuilding, coordinates: [number, number]) => void };
 const CENTER: [number, number] = [-89.405, 43.075];
 const CAMPUS_BOUNDS: [[number, number], [number, number]] = [[-89.455, 43.045], [-89.375, 43.095]];
 const BUILDING_SOURCE = "uw-campus-buildings";
@@ -35,14 +36,16 @@ const LANDMARKS = [
 ];
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-export function CampusMap({ groups, selectedGroupId, liveGroupIds, angled, onSelect, focus, userLocation, fitSignal, campusSignal, mapKey, buildings, selectedBuildingId, onSelectBuilding }: Props) {
+export function CampusMap({ groups, selectedGroupId, liveGroupIds, safetyReports, selectedSafetyReportId, onSelectSafetyReport, angled, onSelect, focus, userLocation, fitSignal, campusSignal, mapKey, buildings, selectedBuildingId, onSelectBuilding }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const markers = useRef<Marker[]>([]);
   const landmarkMarkers = useRef<Marker[]>([]);
+  const safetyMarkers = useRef<Marker[]>([]);
   const userMarker = useRef<Marker | null>(null);
   const fallbackUsed = useRef(false);
   const onSelectRef = useRef(onSelect);
+  const onSelectSafetyReportRef = useRef(onSelectSafetyReport);
   const onSelectBuildingRef = useRef(onSelectBuilding);
   const buildingsRef = useRef(buildings);
   const selectedBuildingIdRef = useRef(selectedBuildingId);
@@ -51,6 +54,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, angled, onSel
   const buildingHandlersAttached = useRef(false);
   const angledRef = useRef(angled);
   useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
+  useEffect(() => { onSelectSafetyReportRef.current = onSelectSafetyReport; }, [onSelectSafetyReport]);
   useEffect(() => { onSelectBuildingRef.current = onSelectBuilding; }, [onSelectBuilding]);
   useEffect(() => { buildingsRef.current = buildings; }, [buildings]);
   useEffect(() => { selectedBuildingIdRef.current = selectedBuildingId; }, [selectedBuildingId]);
@@ -88,7 +92,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, angled, onSel
       };
       const onBuildingClick = (event: maplibregl.MapMouseEvent) => {
         const target = event.originalEvent.target;
-        if (target instanceof Element && target.closest(".maplibregl-marker, .venue-marker-anchor, .landmark-marker, .maplibregl-ctrl")) return;
+        if (target instanceof Element && target.closest(".maplibregl-marker, .venue-marker-anchor, .landmark-marker, .safety-map-marker, .maplibregl-ctrl")) return;
         const layers = interactiveLayers();
         const feature = layers.length ? instance.queryRenderedFeatures(event.point, { layers })[0] : undefined;
         const rawId = feature?.properties?.mapObjectId ?? feature?.id;
@@ -141,7 +145,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, angled, onSel
       element.addEventListener("click", () => instance.flyTo({ center: landmark.coordinates, zoom: Math.max(instance.getZoom(), 15.5), essential: true }));
       return new maplibregl.Marker({ element, anchor: "left", offset: [9, -2] }).setLngLat(landmark.coordinates).addTo(instance);
     });
-    return () => { markers.current.forEach((marker) => marker.remove()); markers.current = []; landmarkMarkers.current.forEach((marker) => marker.remove()); landmarkMarkers.current = []; userMarker.current?.remove(); userMarker.current = null; installBuildingHandlers.current = null; buildingHandlersAttached.current = false; instance.remove(); map.current = null; };
+    return () => { markers.current.forEach((marker) => marker.remove()); markers.current = []; landmarkMarkers.current.forEach((marker) => marker.remove()); landmarkMarkers.current = []; safetyMarkers.current.forEach((marker) => marker.remove()); safetyMarkers.current = []; userMarker.current?.remove(); userMarker.current = null; installBuildingHandlers.current = null; buildingHandlersAttached.current = false; instance.remove(); map.current = null; };
     // One map instance survives filtering and date changes.
   }, [mapKey]);
 
@@ -206,6 +210,40 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, angled, onSel
       element.classList.toggle("is-live", liveGroupIds.includes(element.dataset.groupId || ""));
     });
   }, [groups, selectedGroupId, liveGroupIds]);
+
+  useEffect(() => {
+    const instance = map.current;
+    safetyMarkers.current.forEach((marker) => marker.remove());
+    safetyMarkers.current = [];
+    if (!instance) return;
+    safetyMarkers.current = safetyReports
+      .filter((report) => report.status !== "outdated-resolved")
+      .map((report) => {
+        const element = document.createElement("button");
+        element.type = "button";
+        element.className = `safety-map-marker ${report.status === "community-confirmed-environmental-hazard" ? "is-confirmed" : "is-unverified"}`;
+        element.dataset.reportId = report.id;
+        element.setAttribute("aria-label", `${report.status === "community-confirmed-environmental-hazard" ? "Community-confirmed environmental condition" : "Unverified community report"}: ${report.description}`);
+        element.title = `${report.reportCount} community ${report.reportCount === 1 ? "report" : "reports"} near ${report.buildingName}`;
+        const symbol = document.createElement("span");
+        symbol.className = "safety-map-marker-symbol";
+        symbol.textContent = report.category === "lighting" ? "☼" : report.category === "blocked-access" ? "↗" : report.category === "slippery-surface" ? "✳" : "!";
+        element.append(symbol);
+        if (report.reportCount > 1) {
+          const count = document.createElement("span");
+          count.className = "safety-map-marker-count";
+          count.textContent = String(report.reportCount);
+          element.append(count);
+        }
+        element.addEventListener("click", () => onSelectSafetyReportRef.current(report.id));
+        return new maplibregl.Marker({ element, anchor: "center" }).setLngLat(report.coordinates).addTo(instance);
+      });
+    return () => { safetyMarkers.current.forEach((marker) => marker.remove()); safetyMarkers.current = []; };
+  }, [safetyReports]);
+
+  useEffect(() => {
+    safetyMarkers.current.forEach((marker) => marker.getElement().classList.toggle("is-selected", marker.getElement().dataset.reportId === selectedSafetyReportId));
+  }, [selectedSafetyReportId, safetyReports]);
 
   useEffect(() => {
     userMarker.current?.remove();

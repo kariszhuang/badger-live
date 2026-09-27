@@ -4,11 +4,11 @@ import { ArrowUpRight, BookOpen, CalendarDays, MapPin, Music2, Navigation, Palet
 import type { CampusEvent } from "@/lib/events";
 import { eventStatus, formatEventTime } from "@/lib/chicago-date";
 
-export function EventCard({ event, date, expanded, onSelect, onShare }: { event: CampusEvent; date: string; expanded: boolean; onSelect: () => void; onShare: () => void }) {
+export function EventCard({ event, date, expanded, onSelect, onShare, idPrefix = "event" }: { event: CampusEvent; date: string; expanded: boolean; onSelect: () => void; onShare: () => void; idPrefix?: string }) {
   const status = eventStatus(event.startsAt, event.endsAt, date);
   const CategoryIcon = ({ music: Music2, food: Utensils, arts: Palette, sports: Trophy, talks: BookOpen, outdoors: Sprout, community: Users, other: CalendarDays } as const)[event.category];
   const directionUrl = event.coordinates ? `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(`${event.coordinates[1]},${event.coordinates[0]}`)}` : null;
-  return <article className={`event-card ${expanded ? "is-expanded" : ""}`} id={`event-${event.officialId}`}>
+  return <article className={`event-card ${expanded ? "is-expanded" : ""}`} id={`${idPrefix}-${event.officialId}`}>
     <button className="event-card-main" onClick={onSelect} aria-expanded={expanded}>
       <span className="event-time">{formatEventTime(event.startsAt, event.allDay)}{event.endsAt && !event.allDay ? ` – ${formatEventTime(event.endsAt)}` : ""}</span>
       <span className="event-title">{event.title}</span>

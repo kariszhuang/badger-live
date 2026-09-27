@@ -130,14 +130,17 @@ test("event and landmark markers with the same coordinates stay aligned through 
   const landmarkMarker = page.getByRole("button", { name: "Show Memorial Union on the map" });
   await expect(eventMarker).toBeVisible();
   await expect(landmarkMarker).toBeVisible();
-  const samePoint = async () => {
-    const [eventBounds, landmarkBounds] = await Promise.all([eventMarker.boundingBox(), landmarkMarker.boundingBox()]);
-    if (!eventBounds || !landmarkBounds) return false;
-    // The landmark uses a left anchor with [9, -2] offset; both use the exact same coordinates.
-    const landmarkCoordinate = { x: landmarkBounds.x - 9, y: landmarkBounds.y + landmarkBounds.height / 2 + 2 };
-    const eventCenter = { x: eventBounds.x + eventBounds.width / 2, y: eventBounds.y + eventBounds.height / 2 };
+  const samePoint = () => page.evaluate(() => {
+    const event = document.querySelector<HTMLButtonElement>('.venue-marker-anchor[aria-label="5 events at Memorial Union"]');
+    const landmark = document.querySelector<HTMLButtonElement>('.landmark-marker[aria-label="Show Memorial Union on the map"]');
+    if (!event || !landmark) return false;
+    // Read both boxes in one browser task so an animated map frame cannot split the measurements.
+    const eventRect = event.getBoundingClientRect();
+    const landmarkRect = landmark.getBoundingClientRect();
+    const landmarkCoordinate = { x: landmarkRect.x - 9, y: landmarkRect.y + landmarkRect.height / 2 + 2 };
+    const eventCenter = { x: eventRect.x + eventRect.width / 2, y: eventRect.y + eventRect.height / 2 };
     return Math.abs(eventCenter.x - landmarkCoordinate.x) < 3 && Math.abs(eventCenter.y - landmarkCoordinate.y) < 3;
-  };
+  });
   await expect.poll(samePoint).toBe(true);
 
   const canvas = await page.locator(".maplibregl-canvas").boundingBox();
@@ -200,6 +203,33 @@ test("the angled campus view toggles cleanly back to 2D and landmarks can be foc
   else await campRandall.click();
 });
 
+test("campus safety toolbox prioritizes official help and keeps community reporting private", async ({ page }) => {
+  await page.goto("/?date=2026-09-26");
+  await page.getByRole("button", { name: "Safety, alerts & reports" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("heading", { name: "Get help. Stay informed." })).toBeVisible();
+  await expect(dialog.getByRole("link", { name: /Immediate danger\? Call 911/ })).toHaveAttribute("href", "tel:911");
+  await expect(dialog.getByRole("link", { name: "UW Campus Alerts" })).toHaveAttribute("href", "https://alerts.wisc.edu/");
+  await expect(dialog.getByRole("link", { name: "Manage WiscAlerts" })).toHaveAttribute("href", "https://go.wisc.edu/wiscalerts");
+
+  await dialog.getByRole("button", { name: /Community reports/ }).click();
+  await expect(dialog.getByText("No reviewed community conditions are shared right now.")).toBeVisible();
+
+  await dialog.getByRole("button", { name: "Report a condition" }).click();
+  await expect(dialog.getByText(/No human reviewers are assigned yet/)).toBeVisible();
+  await expect(dialog.getByLabel("Campus building or place")).toBeVisible();
+  await expect(dialog.getByText(/not monitored or sent to UW/)).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Submit private report" })).toBeDisabled();
+
+  const reportResponse = await page.request.get("/api/safety/reports");
+  expect(reportResponse.status()).toBe(200);
+  expect((await reportResponse.json()).reports).toEqual([]);
+  const unsafeReport = await page.request.post("/api/safety/reports", { data: { category: "crime", buildingId: "0055", observedWindow: "just-now", description: "named allegation" } });
+  expect(unsafeReport.status()).toBe(400);
+  const reviewerStatus = await page.request.get("/api/safety/moderation/status");
+  expect((await reviewerStatus.json()).reason).toBe("reviewer-unassigned");
+});
+
 test("campus building footprints load and open details directly from the map", async ({ page }) => {
   const buildingsResponse = page.waitForResponse((response) => response.url().endsWith("/data/uw-campus-buildings.geojson") && response.ok());
   await page.goto("/?date=2026-09-26");
@@ -225,10 +255,21 @@ test("campus building footprints load and open details directly from the map", a
     await page.mouse.click(x, y);
     await expect(dialog.getByRole("heading", { name: "Van Vleck Hall" })).toBeVisible({ timeout: 700 });
   }).toPass({ timeout: 12000 });
-  await expect(dialog.getByRole("link", { name: /Open on campus map/ })).toHaveAttribute("href", "https://map.wisc.edu/?initObj=0048");
+  await expect(dialog.getByRole("link", { name: /Directions in Google Maps/ })).toHaveAttribute("href", "https://www.google.com/maps/dir/?api=1&destination=43.07480652279825%2C-89.40493702344519");
+
+  await page.evaluate(() => {
+    const scope = window as unknown as { __badgerBuildingFocus: string[] };
+    scope.__badgerBuildingFocus = [];
+    document.addEventListener("focusin", (event) => {
+      if (event.target instanceof HTMLInputElement && event.target.matches(".building-search input")) scope.__badgerBuildingFocus.push("building-search");
+    });
+  });
+  await page.mouse.click(12, 12);
+  await expect(dialog).toHaveAttribute("data-state", "closed");
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __badgerBuildingFocus: string[] }).__badgerBuildingFocus)).toEqual([]);
 });
 
-test("campus directory searches buildings and opens verified UW details", async ({ page }) => {
+test("campus directory searches by disciplines and opens building details", async ({ page }) => {
   await page.goto("/?date=2026-09-26");
   await expect(page.locator(".maplibregl-canvas")).toBeVisible();
   await page.getByRole("button", { name: /Explore campus buildings/ }).click();
@@ -238,11 +279,22 @@ test("campus directory searches buildings and opens verified UW details", async 
   await dialog.getByPlaceholder("Search buildings, places, or uses").fill("Chancellor");
   await dialog.getByRole("button", { name: /Bascom Hall/ }).click();
   await expect(dialog.getByRole("heading", { name: "Bascom Hall" })).toBeVisible();
-  await expect(dialog.getByText(/FP&M #0050 · 500 Lincoln Dr\./)).toBeVisible();
+  await expect(dialog.getByText("500 Lincoln Dr.")).toBeVisible();
+  await expect(dialog.getByText(/FP&M #0050/)).toHaveCount(0);
   await expect(dialog.locator(".building-description")).toHaveText("Campus leadership and central administration, including the Chancellor and Provost offices.");
-  await expect(dialog.getByRole("link", { name: /Open on campus map/ })).toHaveAttribute("href", "https://map.wisc.edu/?initObj=0050");
+  await expect(dialog.getByRole("link", { name: /Directions in Google Maps/ })).toHaveAttribute("href", "https://www.google.com/maps/dir/?api=1&destination=43.07534639770641%2C-89.40433580443906");
+  await expect(dialog.locator(".building-topic-tags")).toContainText("Campus operations");
   await dialog.getByRole("button", { name: /All campus buildings/ }).click();
   await expect(dialog.getByPlaceholder("Search buildings, places, or uses")).toBeVisible();
+  await dialog.getByPlaceholder("Search buildings, places, or uses").fill("microbiology");
+  await dialog.getByRole("button", { name: /Microbial Sciences/ }).click();
+  await expect(dialog.getByRole("heading", { name: "Microbial Sciences" })).toBeVisible();
+  await expect(dialog.locator(".building-topic-tags")).toContainText("Microbiology");
+  await expect(dialog.getByText("1550 Linden Dr.")).toBeVisible();
+  await expect(dialog.getByText(/FP&M #0060/)).toHaveCount(0);
+  await dialog.getByRole("button", { name: /All campus buildings/ }).click();
+  await dialog.getByPlaceholder("Search buildings, places, or uses").fill("Bascom Hall");
+  await dialog.getByRole("button", { name: /Bascom Hall/ }).click();
   await dialog.getByRole("button", { name: "Close" }).click();
   await page.waitForTimeout(900);
   const canvas = await page.locator(".maplibregl-canvas").boundingBox();
@@ -264,6 +316,24 @@ test("campus directory searches buildings and opens verified UW details", async 
     canvas!.y + canvas!.height / 2 + target.y - center.y,
   );
   await expect(page.getByRole("dialog").getByRole("heading", { name: "Bascom Hall" })).toBeVisible();
+});
+
+test("building details list all calendar events for the selected date", async ({ page }) => {
+  await page.goto("/?date=2026-09-26");
+  await page.getByRole("button", { name: /Explore campus buildings/ }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByPlaceholder("Search buildings, places, or uses").fill("Memorial Union");
+  await dialog.getByRole("button", { name: /Memorial Union/ }).click();
+
+  await expect(dialog.getByRole("heading", { name: "Events on Saturday, September 26" })).toBeVisible();
+  const eventList = dialog.locator(".building-event-list");
+  await expect(eventList.locator(".event-card")).toHaveCount(5);
+  for (const title of ["Kid Disco on the Terrace Stage", "Model Magic Pretzels", "David Landau on the Terrace Stage", "Mural Tour in Stiftskeller", "Madison Tuba Band"]) {
+    await expect(eventList.getByText(title, { exact: true })).toBeVisible();
+  }
+  await expect(dialog.getByRole("link", { name: /Directions in Google Maps/ })).toHaveAttribute("href", "https://www.google.com/maps/dir/?api=1&destination=43.076421006278224%2C-89.39991444943722");
+  await eventList.locator(".event-card-main").first().click();
+  await expect(eventList.getByRole("link", { name: /Official event/ })).toHaveAttribute("href", /today\.wisc\.edu\/events\/view\/\d+/);
 });
 
 test("building details show an official photo when available and a clear fallback otherwise", async ({ page }) => {

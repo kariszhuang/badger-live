@@ -2,18 +2,23 @@
 
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowLeft, ArrowRight, Building2, CalendarDays, Check, Compass, ExternalLink, Layers, LocateFixed, MapPin, MapPinned, Plus, Search, Share2, Sparkles, X } from "lucide-react";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { ArrowLeft, ArrowRight, Building2, CalendarDays, Check, Compass, Layers, LocateFixed, MapPin, MapPinned, Navigation, Search, Share2, ShieldAlert, Sparkles, X } from "lucide-react";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { chicagoDate, eventStatus, formatDay, isValidDate, shiftDate } from "@/lib/chicago-date";
 import { categories, groupVenues, type CampusEvent, type FilterCategory } from "@/lib/events";
+import type { CommunitySafetyReport } from "@/lib/safety";
 import { parseCampusBuildings, type CampusBuilding, type CampusBuildings } from "@/lib/campus-buildings";
+import { campusEventsAtBuilding, googleMapsDirectionsUrl } from "@/lib/campus-building-events";
+import { matchesCampusBuildingSearch } from "@/lib/campus-building-tags";
 import type { EventsResult } from "@/lib/uw-events-api";
 import { EventCard } from "./event-card";
 import { CampusBuildingPhoto } from "./campus-building-photo";
+import { SafetyCenter } from "./safety-center";
 
 const CampusMap = dynamic(() => import("./campus-map").then((module) => module.CampusMap), { ssr: false, loading: () => <div className="map-loading"><span className="loading-orbit" /> Mapping campus…</div> });
 type DayResponse = EventsResult & { date: string };
 type SheetLevel = "peek" | "half" | "full";
+type SafetyStartView = "official" | "community" | "report";
 
 export function Experience({ initialDate, initial, initialEvent, mapKey }: { initialDate: string; initial: EventsResult | null; initialEvent?: string; mapKey: string }) {
   const [date, setDate] = useState(initialDate);
@@ -40,8 +45,36 @@ export function Experience({ initialDate, initial, initialEvent, mapKey }: { ini
   const [buildingDialogOpen, setBuildingDialogOpen] = useState(false);
   const [selectedBuilding, setSelectedBuilding] = useState<CampusBuilding | null>(null);
   const [buildingQuery, setBuildingQuery] = useState("");
+  const [safetyOpen, setSafetyOpen] = useState(false);
+  const [safetyStartView, setSafetyStartView] = useState<SafetyStartView>("official");
+  const [safetyReports, setSafetyReports] = useState<CommunitySafetyReport[]>([]);
+  const [safetyReportsLoading, setSafetyReportsLoading] = useState(true);
+  const [safetyReportsUnavailable, setSafetyReportsUnavailable] = useState(false);
+  const [selectedSafetyReportId, setSelectedSafetyReportId] = useState<string | null>(null);
+  const [safetyOpenKey, setSafetyOpenKey] = useState(0);
   const listRef = useRef<HTMLDivElement>(null);
   const dragStart = useRef<number | null>(null);
+
+  const refreshSafetyReports = useCallback(async () => {
+    try {
+      const response = await fetch("/api/safety/reports", { cache: "no-store" });
+      const result = await response.json() as { reports?: CommunitySafetyReport[] };
+      if (!response.ok || !Array.isArray(result.reports)) throw new Error("Community reports are unavailable");
+      setSafetyReports(result.reports);
+      setSafetyReportsUnavailable(false);
+    } catch {
+      setSafetyReports([]);
+      setSafetyReportsUnavailable(true);
+    } finally {
+      setSafetyReportsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const initialFetch = window.setTimeout(() => void refreshSafetyReports(), 0);
+    const timer = window.setInterval(() => void refreshSafetyReports(), 90_000);
+    return () => { window.clearTimeout(initialFetch); window.clearInterval(timer); };
+  }, [refreshSafetyReports]);
 
   useEffect(() => {
     if (date === initialDate) return;
@@ -94,9 +127,9 @@ export function Experience({ initialDate, initial, initialEvent, mapKey }: { ini
   const activeGroupId = selectedGroupId || groups.find((group) => group.events.some((event) => event.id === selected?.id))?.id || null;
   const selectedGroup = groups.find((group) => group.id === activeGroupId);
   const filteredBuildings = useMemo(() => {
-    const needle = buildingQuery.trim().toLocaleLowerCase();
-    return (buildings?.features || []).filter(({ properties: building }) => !needle || [building.name, building.shortDescription, building.buildingNumber, building.streetAddress].some((field) => field?.toLocaleLowerCase().includes(needle))).sort((a, b) => a.properties.name.localeCompare(b.properties.name));
+    return (buildings?.features || []).filter(({ properties: building }) => matchesCampusBuildingSearch(building, buildingQuery)).sort((a, b) => a.properties.name.localeCompare(b.properties.name));
   }, [buildings, buildingQuery]);
+  const buildingEvents = useMemo(() => selectedBuilding ? campusEventsAtBuilding(events, selectedBuilding) : [], [events, selectedBuilding]);
 
   const selectBuilding = (building: CampusBuilding, coordinates = building.center) => {
     setSelectedBuilding(building);
@@ -114,6 +147,21 @@ export function Experience({ initialDate, initial, initialEvent, mapKey }: { ini
       setFocus([...event.coordinates]);
     }
     setSheet(next ? "half" : "peek");
+  };
+
+  const openSafetyReport = (reportId: string) => {
+    const report = safetyReports.find((item) => item.id === reportId);
+    if (report) setFocus([...report.coordinates]);
+    setSelectedSafetyReportId(reportId);
+    setSafetyStartView("community");
+    setSafetyOpenKey((key) => key + 1);
+    setSafetyOpen(true);
+  };
+
+  const openSafetyCenter = (view: SafetyStartView = "official") => {
+    setSafetyStartView(view);
+    setSafetyOpenKey((key) => key + 1);
+    setSafetyOpen(true);
   };
 
   const selectGroup = (id: string) => {
@@ -202,7 +250,7 @@ export function Experience({ initialDate, initial, initialEvent, mapKey }: { ini
 
   return <main className="experience">
     <section className="map-panel" aria-label="Campus map">
-      <CampusMap groups={groups} selectedGroupId={activeGroupId} liveGroupIds={liveGroupIds} angled={angledMap} onSelect={selectGroup} focus={focus} userLocation={userLocation} fitSignal={fitSignal} campusSignal={campusSignal} mapKey={mapKey} buildings={buildings} selectedBuildingId={selectedBuilding?.mapObjectId || null} onSelectBuilding={selectBuilding} />
+      <CampusMap groups={groups} selectedGroupId={activeGroupId} liveGroupIds={liveGroupIds} safetyReports={safetyReports} selectedSafetyReportId={selectedSafetyReportId} onSelectSafetyReport={openSafetyReport} angled={angledMap} onSelect={selectGroup} focus={focus} userLocation={userLocation} fitSignal={fitSignal} campusSignal={campusSignal} mapKey={mapKey} buildings={buildings} selectedBuildingId={selectedBuilding?.mapObjectId || null} onSelectBuilding={selectBuilding} />
       <div className="map-top-label"><span className="map-top-dot" /> UW–MADISON <span className="map-top-divider">/</span> MADISON, WI</div>
       <div className="building-map-legend"><span aria-hidden="true" />Campus buildings <small>· select for details</small></div>
       <div className="map-tools">
@@ -227,6 +275,7 @@ export function Experience({ initialDate, initial, initialEvent, mapKey }: { ini
         </div>
         <div className="filter-row" role="group" aria-label="Filter events by interest">{categories.map((item) => <button key={item} className={`filter-chip ${category === item ? "active" : ""}`} aria-pressed={category === item} onClick={() => chooseCategory(item)}>{item === "all" ? "All events" : item === "talks" ? "Talks" : item[0].toUpperCase() + item.slice(1)}</button>)}</div>
         <button className="building-directory-trigger" onClick={() => { setSelectedBuilding(null); setBuildingQuery(""); setBuildingDialogOpen(true); }}><Building2 size={16} /><span>Explore campus buildings</span><span className="building-directory-count">{buildings ? buildings.features.length : "…"}</span><ArrowRight size={15} /></button>
+        <button className="safety-center-trigger" onClick={() => openSafetyCenter()}><ShieldAlert size={17} /><span>Safety, alerts &amp; reports</span><ArrowRight size={15} /></button>
       </header>
 
       <div className="events-heading"><div><span className="eyebrow">ON CAMPUS</span><h2>{date === chicagoDate() ? "Today’s discoveries" : formatDay(date)}</h2></div><button className="share-button" onClick={() => share()} aria-label="Share this date">{copied ? <Check size={17} /> : <Share2 size={17} />}</button></div>
@@ -240,30 +289,39 @@ export function Experience({ initialDate, initial, initialEvent, mapKey }: { ini
         {unmapped.length > 0 && <section className="unmapped-section"><h3>Locations not mapped</h3><p>These UW events have no verified map coordinates. Their official listings are still available.</p>{renderCards(unmapped)}</section>}
       <p className="source-footer">EVENT DATA FROM <a href="https://today.wisc.edu/" target="_blank" rel="noopener noreferrer">UW TODAY ↗</a><br />Independent student project · Not an official UW service</p>
       </div>
-      <Dialog><DialogTrigger asChild><button className="add-button" aria-label="Post an event or report"><Plus size={24} /></button></DialogTrigger><DialogContent><DialogHeader><DialogTitle>More ways to share campus life are coming.</DialogTitle></DialogHeader><p>Student events and temporary campus reports are planned for a future release. For now, every listing here comes from UW’s official public calendar.</p></DialogContent></Dialog>
+      <button className="add-button" aria-label="Open campus safety and reporting" onClick={() => openSafetyCenter("report")}><ShieldAlert size={21} /></button>
     </section>
 
-    <Dialog open={buildingDialogOpen} onOpenChange={(open) => { setBuildingDialogOpen(open); if (!open) setSelectedBuilding(null); }}>
+    <Dialog open={buildingDialogOpen} onOpenChange={setBuildingDialogOpen}>
       <DialogContent className="building-dialog">
         {selectedBuilding ? <>
           <button className="building-back" onClick={() => setSelectedBuilding(null)}><ArrowLeft size={15} /> All campus buildings</button>
-          <CampusBuildingPhoto key={selectedBuilding.mapObjectId} name={selectedBuilding.name} photoUrl={selectedBuilding.photoUrl} />
-          <DialogHeader><DialogTitle>{selectedBuilding.name}</DialogTitle><DialogDescription>{[selectedBuilding.buildingNumber ? `FP&M #${selectedBuilding.buildingNumber}` : null, selectedBuilding.streetAddress].filter(Boolean).join(" · ") || "On the UW–Madison campus"}</DialogDescription></DialogHeader>
-          <p className="building-description">{selectedBuilding.shortDescription}</p>
-          {selectedBuilding.hours && <p className="building-hours"><span>Hours</span>{selectedBuilding.hours}</p>}
-          <a className="building-official-link" href={selectedBuilding.officialMapUrl} target="_blank" rel="noopener noreferrer">Open on campus map <ExternalLink size={15} /></a>
+          <div className="building-detail-scroll">
+            <CampusBuildingPhoto key={selectedBuilding.mapObjectId} name={selectedBuilding.name} photoUrl={selectedBuilding.photoUrl} />
+            <DialogHeader><DialogTitle>{selectedBuilding.name}</DialogTitle><DialogDescription>{selectedBuilding.streetAddress || "On the UW–Madison campus"}</DialogDescription></DialogHeader>
+            <div className="building-topic-tags" aria-label="Building topics">{selectedBuilding.tags.map((tag) => <span className="building-topic-tag" key={tag}>{tag}</span>)}</div>
+            <p className="building-description">{selectedBuilding.shortDescription}</p>
+            {selectedBuilding.hours && <p className="building-hours"><span>Hours</span>{selectedBuilding.hours}</p>}
+            <section className="building-events" aria-labelledby="building-events-title">
+              <div className="building-events-heading"><div><h3 id="building-events-title">Events on {formatDay(date)}</h3><p>{buildingEvents.length ? `${buildingEvents.length} UW calendar ${buildingEvents.length === 1 ? "event" : "events"} at this building` : "No events listed at this building for this date"}</p></div><CalendarDays size={19} aria-hidden="true" /></div>
+              {buildingEvents.length ? <div className="building-event-list">{buildingEvents.map((event) => <EventCard key={event.id} idPrefix="building-event" event={event} date={date} expanded={selected?.id === event.id} onSelect={() => selectEvent(event)} onShare={() => share(event)} />)}</div> : <p className="building-events-empty">Try another day, or check back as the UW calendar changes.</p>}
+            </section>
+            <a className="building-official-link" href={googleMapsDirectionsUrl(selectedBuilding.center)} target="_blank" rel="noopener noreferrer">Directions in Google Maps <Navigation size={15} /></a>
+          </div>
         </> : <>
           <DialogHeader><DialogTitle>Explore UW–Madison buildings</DialogTitle><DialogDescription>{buildings ? `${buildings.features.length} mapped UW campus buildings and complexes. Select a result to highlight it on the map.` : buildingError ? "The campus building directory could not be loaded." : "Loading the official campus building directory…"}</DialogDescription></DialogHeader>
-          {!buildingError && <label className="building-search"><Search size={17} aria-hidden="true" /><span className="sr-only">Search campus buildings</span><input autoFocus placeholder="Search buildings, places, or uses" value={buildingQuery} onChange={(event) => setBuildingQuery(event.target.value)} /></label>}
+          {!buildingError && <label className="building-search"><Search size={17} aria-hidden="true" /><span className="sr-only">Search campus buildings</span><input autoFocus={buildingDialogOpen} placeholder="Search buildings, places, or uses" value={buildingQuery} onChange={(event) => setBuildingQuery(event.target.value)} /></label>}
           <ul className="building-directory-list" aria-label="UW campus buildings">
             {filteredBuildings.map(({ properties: building }) => <li key={building.mapObjectId}><button className="building-directory-item" onClick={() => selectBuilding(building)}>
-              <span className="building-list-icon"><Building2 size={17} /></span><span className="building-list-copy"><strong>{building.name}</strong><small>{building.shortDescription}</small></span><MapPin size={15} />
+              <span className="building-list-icon"><Building2 size={17} /></span><span className="building-list-copy"><strong>{building.name}</strong><small>{building.shortDescription}</small><span className="building-list-tags">{building.tags.slice(0, 3).map((tag) => <span key={tag}>{tag}</span>)}</span></span><MapPin size={15} />
             </button></li>)}
             {buildings && filteredBuildings.length === 0 && <li className="building-empty">No buildings match that search.</li>}
           </ul>
         </>}
       </DialogContent>
     </Dialog>
+
+    <SafetyCenter key={safetyOpenKey} open={safetyOpen} onOpenChange={setSafetyOpen} initialView={safetyStartView} buildings={buildings} reports={safetyReports} reportsLoading={safetyReportsLoading} reportsUnavailable={safetyReportsUnavailable} selectedReportId={selectedSafetyReportId} onSelectReport={(report) => { setSelectedSafetyReportId(report.id); setFocus([...report.coordinates]); }} onReportsChanged={() => { void refreshSafetyReports(); }} />
 
     <section className={`mobile-sheet sheet-${sheet}`} aria-label="Event list" onKeyDown={(event) => { if (event.key === "Escape") { setSheet("peek"); setSelectedId(null); } }}>
       <div className="sheet-handle-zone" onPointerDown={(event) => { dragStart.current = event.clientY; }} onPointerUp={(event) => {
