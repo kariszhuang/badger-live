@@ -21,7 +21,11 @@ export async function interpretReport(input: {
   if (!apiKey || !model) throw new IntakeServiceError("not-configured");
   const now = input.now || new Date();
   const system = createReportIntakeSystemPrompt(now);
-  const candidates = input.places.map(({ sourcePlaceId, name, aliases }) => ({ id: sourcePlaceId, name, aliases }));
+  const candidates = input.places.slice(0, 20).map(({ sourcePlaceId, name, aliases }) => ({
+    id: sourcePlaceId,
+    name,
+    aliases: aliases.slice(0, 8),
+  }));
   const userContent: Array<Record<string, unknown>> = [{
     type: "input_text",
     text: JSON.stringify({ mode: input.mode, message: input.text, trusted_campus_places: candidates }),

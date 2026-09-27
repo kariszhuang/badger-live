@@ -43,17 +43,24 @@ All write routes fail closed when required database, HMAC, model/moderation, or 
 | Import/cron and route inspection | Implemented and locally verified | Event import and expiry have bearer-protected endpoints and production schedules; route inspection warns only about nearby unverified points. Local Supabase has the four migrations applied, including the ten-minute expiry schedule; atomic retry, public-role denial, and trigger behavior were manually checked. |
 | Documentation and demo readiness | Complete for local implementation | README, deployment setup, reporting architecture, prompt contract tests, and this journal document the architecture, local workflow, operational boundaries, and hosted setup still required. |
 
+## Acceptance audit follow-up
+
+- Location resolution is deterministic and covered independently from the model: an explicitly selected map pin wins, then a trusted named place, a valid prior issue for relative wording, an explicitly selected trusted place, and finally fresh GPS only when the issue says `here`. Missing or unresolved location no longer silently inherits the reporter's GPS point.
+- Report intake sends at most 20 text-matched trusted places plus the selected place to the model, with at most 8 aliases per place. The full cached catalog stays server-side.
+- The safety sheet now has source-linked UWPD and University Housing lost-property guidance. The deployment guide has an exact-ID/exact-title procedure for deleting demo rows safely.
+- Route-level tests exercise one-request multi-issue publication, relative issue location inheritance, location follow-up instead of GPS fallback, pin/place precedence, person-allegation rejection before model calls, and duplicate choice without an early write. Pure location tests cover six precedence and fallback cases.
+- The single-send product flow deliberately runs semantic intake inside `/api/report/publish` so one explicit Send can screen, interpret, deduplicate, and commit atomically. `/api/report/interpret` remains a read-only Ask-mode extraction helper; it is not an extra report-composer round trip.
+
 ## Verification ledger
 
 Verification on the current branch:
 
-- `bun run lint`, `bun run typecheck`, `bun run test` (15 files / 71 tests), and `bun run build` all passed after the implementation changes.
+- `bun run lint`, `bun run typecheck`, `bun run test` (17 files / 83 tests), and `bun run build` all passed after the current acceptance-audit changes.
 - All four migrations applied successfully to the disposable local Supabase instance. The expiry job is registered as `badger-live-expire-hazards` on `*/10 * * * *`. Manual database checks covered atomic two-item publish, idempotent retry, denied anonymous writes/private access, and minimal trigger payload.
 - Prompt tests check guardrail text and source contracts only; no OpenAI API key/model was present, so no live GPT-6 Luna trial has run.
 - `bun run db:status`: local Supabase is running; its CLI reports no linked hosted project.
 - Built-in browser review at a 481×827 viewport covered the map, report and assistant sheets, local trusted-place search, and the map-pin fallback when location was unavailable. A clipped mobile sheet was found and fixed; the new sheet geometry assertions pass.
 - Final full Playwright run: `bun run test:e2e --workers=1` passed 53 tests with 3 expected desktop skips for mobile-only sheet checks. Running this MapLibre-heavy suite with more workers can starve browser evaluation and cause timeout noise; use one worker when you need a stable acceptance run.
-- Built-in browser review at a 481×827 viewport covered the map, report and assistant sheets, local trusted-place search, and the map-pin fallback when location was unavailable. A clipped mobile sheet was found and fixed; the new sheet geometry assertions pass.
 - The local database path and browser code are verified, but a two-device staging session, a live OpenAI request, actual phone location behavior, and hosted deployment remain unverified and must be checked with project credentials before enabling writes.
 
 Before each implementation commit, rerun the repository-required lint, typecheck, unit tests, and build checks. Do not include unrelated pre-existing user edits in those commits.

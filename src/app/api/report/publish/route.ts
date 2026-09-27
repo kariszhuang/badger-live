@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import { NextRequest } from "next/server";
-import { deriveReportedSeverity, hazardFreshnessMs, reportSubmissionSchema, screenReportText, validateReportLocation } from "@/lib/report/policy";
+import { deriveReportedSeverity, hazardFreshnessMs, reportSubmissionSchema, screenReportText } from "@/lib/report/policy";
 import { readBoundedJson, RequestBodyError } from "@/lib/report/body";
 import { IntakeServiceError, interpretReport, moderateReportInput } from "@/lib/report/intake";
 import { createCapabilityHash, createCapabilityToken, createRequestDigest, createRequestFingerprints, deterministicReportId, FingerprintConfigurationError } from "@/lib/report/visitor-fingerprint";
 import { checkRequestRateLimits, jsonResponse, MAX_REPORT_REQUEST_BYTES, reportWritesEnabled, requestHasAllowedOrigin } from "@/lib/report/route-helpers";
-import { findDuplicateCandidates, findNamedPlacesInText, getCampusPlaces, publishHazardBatch, ReportStoreError, resolveCampusPlace } from "@/lib/report/store";
-import type { CampusPlace, HazardKind, IntakeIssue, ReportLocationMethod, ReportSeverity } from "@/lib/report/types";
+import { findDuplicateCandidates, findNamedPlacesInText, getCampusPlaces, publishHazardBatch, ReportStoreError } from "@/lib/report/store";
+import { resolveIssueLocation } from "@/lib/report/location-resolution";
+import type { HazardKind, ReportLocationMethod, ReportSeverity } from "@/lib/report/types";
 
 export const runtime = "nodejs";
 
@@ -42,53 +43,6 @@ function titleFor(kind: HazardKind) {
     accessibility_barrier: "Physical access barrier", construction_obstruction: "Construction obstruction",
     fallen_branch: "Fallen branch", other_physical: "Physical condition reported",
   } satisfies Record<HazardKind, string>)[kind];
-}
-
-async function resolveIssueLocation(input: {
-  issue: IntakeIssue;
-  previous: ResolvedIssue[];
-  text: string;
-  selectedLocation: ReturnType<typeof reportSubmissionSchema.parse>["location"];
-  namedPlaces: CampusPlace[];
-  selectedPlaces: CampusPlace[];
-  now: number;
-}) {
-  const { issue, previous, text, selectedLocation, namedPlaces, selectedPlaces, now } = input;
-  if (issue.locationIntent === "relative" && issue.relativeToIssueIndex !== null) {
-    const target = previous[issue.relativeToIssueIndex];
-    if (target) return { reason: null, value: { coordinates: target.coordinates, placeId: target.placeId, locationMethod: target.locationMethod, accuracy: target.locationAccuracyM } };
-  }
-
-  const explicitPlace = issue.placeName
-    ? namedPlaces.find((place) => place.name.toLocaleLowerCase() === issue.placeName?.trim().toLocaleLowerCase()
-      || place.aliases.some((alias) => alias.toLocaleLowerCase() === issue.placeName?.trim().toLocaleLowerCase()))
-    : namedPlaces.length === 1 ? namedPlaces[0] : null;
-  if (explicitPlace) return { reason: null, value: { coordinates: explicitPlace.coordinates, placeId: explicitPlace.id, locationMethod: "place" as const, accuracy: null } };
-
-  if (selectedLocation?.method === "pin") {
-    const reason = validateReportLocation(selectedLocation, now);
-    return reason ? { reason, value: null } : { reason: null, value: { coordinates: [selectedLocation.longitude, selectedLocation.latitude] as [number, number], placeId: null, locationMethod: "pin" as const, accuracy: null } };
-  }
-
-  if (issue.locationIntent === "named_place") return { reason: "missing", value: null };
-
-  if (selectedLocation?.method === "place") {
-    const selectedPlace = selectedPlaces.find((place) => place.id === selectedLocation.placeId);
-    if (selectedPlace) return { reason: null, value: { coordinates: selectedPlace.coordinates, placeId: selectedPlace.id, locationMethod: "place" as const, accuracy: null } };
-    return { reason: "missing", value: null };
-  }
-
-  if (selectedLocation?.method === "gps") {
-    const reason = validateReportLocation(selectedLocation, now);
-    if (reason) return { reason, value: null };
-    return { reason: null, value: { coordinates: [selectedLocation.longitude, selectedLocation.latitude] as [number, number], placeId: null, locationMethod: "gps" as const, accuracy: Math.round(selectedLocation.accuracyM) } };
-  }
-
-  const fallbackPlace = await resolveCampusPlace(issue.placeName || "");
-  if (fallbackPlace && text.toLocaleLowerCase().includes(fallbackPlace.name.toLocaleLowerCase())) {
-    return { reason: null, value: { coordinates: fallbackPlace.coordinates, placeId: fallbackPlace.id, locationMethod: "place" as const, accuracy: null } };
-  }
-  return { reason: "missing", value: null };
 }
 
 function responseForLocationIssue(reason: string | null, followup: string | null) {
@@ -143,7 +97,11 @@ export async function POST(request: NextRequest) {
     if (!moderation.allowed) return jsonResponse({ outcome: "not_published", message: "This message could not be shared as a campus condition report." }, 422);
 
     const places = await getCampusPlaces();
-    const plan = await interpretReport({ mode: "report", text: input.text, photo: input.photo, places });
+    const namedPlaces = await findNamedPlacesInText(input.text);
+    const selectedPlaceId = input.location?.method === "place" ? input.location.placeId : null;
+    const selectedPlace = selectedPlaceId ? places.find((place) => place.id === selectedPlaceId) : undefined;
+    const modelPlaces = [...new Map([...namedPlaces, ...(selectedPlace ? [selectedPlace] : [])].map((place) => [place.id, place])).values()].slice(0, 20);
+    const plan = await interpretReport({ mode: "report", text: input.text, photo: input.photo, places: modelPlaces });
     if (plan.intent !== "report") {
       if (plan.intent === "out_of_scope") return jsonResponse({ outcome: "not_published", message: "This app publishes only non-identifying physical campus conditions. Immediate emergencies should go to 911 or verified official channels." }, 422);
       return jsonResponse({ outcome: "not_published", message: "Describe an observable physical campus condition to publish a report." }, 422);
@@ -151,16 +109,20 @@ export async function POST(request: NextRequest) {
     if (!plan.issues.length) return jsonResponse({ outcome: "not_published", message: "I couldn’t identify an eligible physical campus condition in that message." }, 422);
 
     const now = Date.now();
-    const namedPlaces = await findNamedPlacesInText(input.text);
-    const selectedPlaceId = input.location?.method === "place" ? input.location.placeId : null;
-    const selectedPlaces = selectedPlaceId ? places.filter((place) => place.id === selectedPlaceId) : [];
     const explicitPast = explicitPastReference(input.text);
     const issues: ResolvedIssue[] = [];
     for (const [itemIndex, issue] of plan.issues.entries()) {
       if ((explicitPast || issue.observedAtBasis === "unknown") && (!issue.observedAt || issue.observedAtBasis !== "explicit_in_text")) {
         return jsonResponse({ outcome: "needs_followup", itemIndex, question: "When did you see this condition?" }, 200);
       }
-      const location = await resolveIssueLocation({ issue, previous: issues, text: input.text, selectedLocation: input.location, namedPlaces, selectedPlaces, now });
+      const location = resolveIssueLocation({
+        issue,
+        previous: issues.map((previousIssue) => ({ coordinates: previousIssue.coordinates, placeId: previousIssue.placeId, locationMethod: previousIssue.locationMethod, accuracy: previousIssue.locationAccuracyM })),
+        selectedLocation: input.location,
+        places,
+        namedPlaces,
+        now,
+      });
       if (!location.value) return jsonResponse({ outcome: "needs_followup", itemIndex, question: responseForLocationIssue(location.reason, plan.followup) }, 200);
       const observedAt = issue.observedAtBasis === "explicit_in_text" && issue.observedAt
         ? new Date(issue.observedAt)

@@ -83,6 +83,21 @@ The import refreshes the current America/Chicago date and the following seven ev
   where id = '<reviewed-report-uuid>';
   ```
 
+- To remove a temporary demo report, copy its exact ID and safe title from the demo receipt, inspect it first, then delete only that reviewed row. Do not use a broad date, category, or lifecycle delete:
+
+  ```sql
+  select id, kind, public_title, lifecycle, created_at
+  from public.hazard_reports
+  where id = '<demo-report-uuid>'::uuid;
+
+  delete from public.hazard_reports
+  where id = '<demo-report-uuid>'::uuid
+    and public_title = '<expected-safe-title>'
+  returning id, kind, public_title;
+  ```
+
+  Verify the returned row is the intended demo item. Its private observations, flags, and undo capability are removed by foreign-key cascade.
+
 - The app makes no independent-person claim: HMAC rate limits reduce accidental repetition but browsers, networks, and visitor IDs can be spoofed or shared.
 - Report and assistant endpoints depend on an external OpenAI project. If configuration or moderation is unavailable, report publication fails closed and the map remains read-only.
 - Before an open-campus launch, add a staffed takedown/abuse-response path or reduce public publishing to a more restrictive policy. The no-login prototype is not professional moderation.

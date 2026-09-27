@@ -9,6 +9,8 @@ const officialResources = [
   { eyebrow: "OFF-CAMPUS ALERTS", title: "BadgerSAFE information", description: "UW directs area-based off-campus alerts through BadgerSAFE.", href: "https://uwpd.wisc.edu/staying-safe/off-campus-alerts/", icon: MapPin },
   { eyebrow: "OFFICIAL POLICE RECORDS", title: "UWPD event and Clery logs", description: "Official historical public records; these are not live alerts or findings of guilt.", href: "https://uwpd.wisc.edu/data-policies-resources/event-log-and-clery-log/", icon: ExternalLink },
   { eyebrow: "OFFICIAL POLICE UPDATES", title: "UWPD incident report archive", description: "Read notices at their original source. Badger Live does not republish personal narratives.", href: "https://uwpd.wisc.edu/incident_report/", icon: ExternalLink },
+  { eyebrow: "LOST & FOUND", title: "Lost property guidance", description: "Start with the building where the item was lost. UWPD handles significant valuables and found campus keys.", href: "https://uwpd.wisc.edu/about-us/faqs/", icon: MapPin },
+  { eyebrow: "RESIDENCE HALLS", title: "Housing hall desk services", description: "University Housing accepts found items at residence hall desks and helps residents report missing items.", href: "https://www.housing.wisc.edu/undergraduate/services/desks/", icon: MapPin },
 ];
 
 const contacts = [
