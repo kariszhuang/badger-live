@@ -22,4 +22,18 @@ describe("local Supabase database selection", () => {
     vi.stubEnv("VERCEL", "1");
     expect(databaseConnectionString()).toBe("");
   });
+
+  it("never mixes hosted Supabase Auth with an implicit local database", () => {
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://project.supabase.co");
+    expect(databaseConnectionString()).toBe("");
+  });
+
+  it("keeps the local database fallback for the local Supabase stack", () => {
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("VERCEL", "");
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "http://127.0.0.1:54321");
+    expect(databaseConnectionString()).toBe("postgresql://postgres:postgres@127.0.0.1:54322/postgres");
+  });
 });

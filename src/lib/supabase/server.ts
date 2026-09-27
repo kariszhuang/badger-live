@@ -1,9 +1,10 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { supabasePublicKey } from "./public-key";
 
 export async function createSupabaseServerClient() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const key = supabasePublicKey();
   if (!url || !key) return null;
   const cookieStore = await cookies();
 

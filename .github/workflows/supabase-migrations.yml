@@ -1,0 +1,41 @@
+name: Supabase migrations
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: Apply the migrations after the dry run
+        type: boolean
+        required: true
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-production-migrations
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: supabase-production
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: oven-sh/setup-bun@v2.2.0
+      - run: bun ci
+      - name: Require the production pooler URL
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ]; then
+            echo "Configure SUPABASE_DB_URL as a GitHub Actions secret using the project's Supabase Session Pooler connection string."
+            exit 1
+          fi
+          echo "::add-mask::$SUPABASE_DB_URL"
+      - name: Preview pending migrations
+        run: bun run supabase db push --db-url "$SUPABASE_DB_URL" --dry-run
+      - name: Apply migrations
+        if: ${{ inputs.apply }}
+        run: bun run supabase db push --db-url "$SUPABASE_DB_URL" --yes --skip-vault
