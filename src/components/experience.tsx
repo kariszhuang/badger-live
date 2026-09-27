@@ -9,6 +9,7 @@ import { categories, groupVenues, type CampusEvent, type FilterCategory } from "
 import { parseCampusBuildings, type CampusBuilding, type CampusBuildings } from "@/lib/campus-buildings";
 import type { EventsResult } from "@/lib/uw-events-api";
 import { EventCard } from "./event-card";
+import { CampusBuildingPhoto } from "./campus-building-photo";
 
 const CampusMap = dynamic(() => import("./campus-map").then((module) => module.CampusMap), { ssr: false, loading: () => <div className="map-loading"><span className="loading-orbit" /> Mapping campus…</div> });
 type DayResponse = EventsResult & { date: string };
@@ -246,7 +247,7 @@ export function Experience({ initialDate, initial, initialEvent, mapKey }: { ini
       <DialogContent className="building-dialog">
         {selectedBuilding ? <>
           <button className="building-back" onClick={() => setSelectedBuilding(null)}><ArrowLeft size={15} /> All campus buildings</button>
-          <div className="building-detail-icon"><Building2 size={23} /></div>
+          <CampusBuildingPhoto key={selectedBuilding.mapObjectId} name={selectedBuilding.name} photoUrl={selectedBuilding.photoUrl} />
           <DialogHeader><DialogTitle>{selectedBuilding.name}</DialogTitle><DialogDescription>{[selectedBuilding.buildingNumber ? `FP&M #${selectedBuilding.buildingNumber}` : null, selectedBuilding.streetAddress].filter(Boolean).join(" · ") || "On the UW–Madison campus"}</DialogDescription></DialogHeader>
           <p className="building-description">{selectedBuilding.shortDescription}</p>
           {selectedBuilding.hours && <p className="building-hours"><span>Hours</span>{selectedBuilding.hours}</p>}

@@ -5,6 +5,10 @@ const positionSchema = z.array(z.number().finite()).min(2);
 const ringSchema = z.array(positionSchema).min(4);
 const polygonSchema = z.array(ringSchema).min(1);
 const multiPolygonSchema = z.array(polygonSchema).min(1);
+const campusPhotoUrlSchema = z.string().url().refine((value) => {
+  const url = new URL(value);
+  return url.protocol === "https:" && url.hostname === "mapcdn.wisc.cloud" && url.pathname.startsWith("/rails/active_storage/blobs/proxy/");
+}, "Expected an official UW campus-map photo URL");
 
 export const campusGeometrySchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("Point"), coordinates: positionSchema }),
@@ -20,6 +24,7 @@ export const campusBuildingPropertiesSchema = z.object({
   streetAddress: z.string().nullish(),
   description: z.string().nullish(),
   hours: z.string().nullish(),
+  photoUrl: campusPhotoUrlSchema.nullish(),
   center: z.tuple([z.number(), z.number()]),
   footprintStatus: z.enum(["full", "partial", "complex"]),
   officialMapUrl: z.string().url(),

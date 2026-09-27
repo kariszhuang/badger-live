@@ -265,3 +265,19 @@ test("campus directory searches buildings and opens verified UW details", async 
   );
   await expect(page.getByRole("dialog").getByRole("heading", { name: "Bascom Hall" })).toBeVisible();
 });
+
+test("building details show an official photo when available and a clear fallback otherwise", async ({ page }) => {
+  await page.goto("/?date=2026-09-26");
+  await page.getByRole("button", { name: /Explore campus buildings/ }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByPlaceholder("Search buildings, places, or uses").fill("Chamberlin");
+  await dialog.getByRole("button", { name: /Chamberlin Hall/ }).click();
+  const photo = dialog.getByRole("img", { name: "Exterior photo of Chamberlin Hall" });
+  await expect(photo).toBeVisible();
+  await expect.poll(() => dialog.locator(".building-photo img").evaluate((image) => (image as HTMLImageElement).naturalWidth), { timeout: 15000 }).toBeGreaterThan(0);
+
+  await dialog.getByRole("button", { name: /All campus buildings/ }).click();
+  await dialog.getByPlaceholder("Search buildings, places, or uses").fill("Soils Building");
+  await dialog.getByRole("button", { name: /Soils Building/ }).click();
+  await expect(dialog.getByRole("img", { name: "No photo available for Soils Building" })).toBeVisible();
+});

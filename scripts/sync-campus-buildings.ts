@@ -20,9 +20,23 @@ const rawBuildingSchema = z.object({
   street_address: z.string().nullish(),
   description: z.string().nullish(),
   hours: z.string().nullish(),
+  thumbnail: z.string().url().nullish(),
+  images: z.object({
+    thumb: z.string().url().nullish(),
+    large: z.string().url().nullish(),
+  }).nullish(),
   geojson: geometrySchema,
   lnglat: pair.nullish(),
 }).passthrough();
+
+function campusPhotoUrl(building: z.infer<typeof rawBuildingSchema>): string | null {
+  const candidate = building.images?.large ?? building.thumbnail ?? building.images?.thumb;
+  if (!candidate) return null;
+  const url = new URL(candidate);
+  return url.protocol === "https:" && url.hostname === "mapcdn.wisc.cloud" && url.pathname.startsWith("/rails/active_storage/blobs/proxy/")
+    ? url.toString()
+    : null;
+}
 
 const CAMPUS_BOUNDS = { west: -89.455, south: 43.045, east: -89.375, north: 43.095 };
 const endpoint = "https://www.map.wisc.edu/api/v1/map_objects.geojson";
@@ -91,6 +105,7 @@ const features = raw.flatMap((entry: unknown) => {
       streetAddress: plainText(building.street_address),
       description: plainText(building.description),
       hours: plainText(building.hours),
+      photoUrl: campusPhotoUrl(building),
       center: [longitude, latitude],
       footprintStatus: building.object_type === "building_partial" ? "partial" : building.geojson.type === "Point" ? "complex" : "full",
       officialMapUrl: building.building_number?.trim()

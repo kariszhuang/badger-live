@@ -25,6 +25,14 @@ describe("UW campus building data", () => {
     }
   });
 
+  it("uses real official building photos when available and accepts buildings without one", () => {
+    const chamberlin = collection.features.find(({ properties }) => properties.mapObjectId === "361");
+    const soils = collection.features.find(({ properties }) => properties.name === "Soils Building");
+    expect(chamberlin?.properties.photoUrl).toMatch(/^https:\/\/mapcdn\.wisc\.cloud\/rails\/active_storage\/blobs\/proxy\//);
+    expect(collection.features.filter(({ properties }) => properties.photoUrl).length).toBeGreaterThanOrEqual(190);
+    expect(soils?.properties.photoUrl).toBeNull();
+  });
+
   it("preserves official campus coordinates and uses UW building-number detail links", () => {
     const bascom = collection.features.find(({ properties }) => properties.name === "Bascom Hall");
     expect(bascom?.properties.buildingNumber).toBe("0050");
@@ -57,5 +65,10 @@ describe("UW campus building data", () => {
     delete properties.description;
     delete properties.hours;
     expect(campusBuildingPropertiesSchema.safeParse(properties).success).toBe(true);
+  });
+
+  it("rejects photo URLs from untrusted hosts", () => {
+    const chamberlin = collection.features.find(({ properties }) => properties.mapObjectId === "361");
+    expect(campusBuildingPropertiesSchema.safeParse({ ...chamberlin!.properties, photoUrl: "https://example.com/photo.jpg" }).success).toBe(false);
   });
 });
