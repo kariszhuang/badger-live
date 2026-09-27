@@ -2,10 +2,20 @@ import { describe, expect, it } from "vitest";
 import { CAMPUS_BUILDING_FILL_PAINT, campusBuildingLayerInsertionPoints } from "./campus-building-map-style";
 
 describe("campus building map fill", () => {
-  it("renders every mapped building as a consistent, fully opaque Wisconsin red", () => {
+  it("keeps the original warm red footprint and deepens it on hover and selection", () => {
     expect(CAMPUS_BUILDING_FILL_PAINT).toEqual({
-      "fill-color": "#c5050c",
-      "fill-opacity": 1,
+      "fill-color": [
+        "case",
+        ["boolean", ["feature-state", "selected"], false], "#c5050c",
+        ["boolean", ["feature-state", "hover"], false], "#c94d48",
+        "#d65f56",
+      ],
+      "fill-opacity": [
+        "case",
+        ["boolean", ["feature-state", "selected"], false], 0.86,
+        ["boolean", ["feature-state", "hover"], false], 0.82,
+        0.76,
+      ],
     });
   });
 

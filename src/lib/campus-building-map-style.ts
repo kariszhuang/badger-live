@@ -1,7 +1,21 @@
-export const CAMPUS_BUILDING_FILL_PAINT = {
-  "fill-color": "#c5050c",
-  "fill-opacity": 1,
-} as const;
+import type { LayerSpecification } from "maplibre-gl";
+
+type CampusBuildingFillLayer = Extract<LayerSpecification, { type: "fill" }>;
+
+export const CAMPUS_BUILDING_FILL_PAINT: NonNullable<CampusBuildingFillLayer["paint"]> = {
+  "fill-color": [
+    "case",
+    ["boolean", ["feature-state", "selected"], false], "#c5050c",
+    ["boolean", ["feature-state", "hover"], false], "#c94d48",
+    "#d65f56",
+  ],
+  "fill-opacity": [
+    "case",
+    ["boolean", ["feature-state", "selected"], false], 0.86,
+    ["boolean", ["feature-state", "hover"], false], 0.82,
+    0.76,
+  ],
+};
 
 export type MapStyleLayer = { id: string; type: string };
 

@@ -91,12 +91,6 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
   }, [refreshSafetyReports]);
 
   useEffect(() => {
-    const initialFetch = window.setTimeout(() => void refreshSafetyReports(), 0);
-    const timer = window.setInterval(() => void refreshSafetyReports(), 90_000);
-    return () => { window.clearTimeout(initialFetch); window.clearInterval(timer); };
-  }, [refreshSafetyReports]);
-
-  useEffect(() => {
     if (initial) writeClientEventDay(dayCache.current, initialDate, { ...initial, date: initialDate });
   }, [initial, initialDate]);
 
@@ -196,7 +190,20 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
     window.history.replaceState({}, "", url);
   };
 
-  const chooseDate = (value: string) => { if (!isValidDate(value)) return; setLoading(true); setError(false); setData(null); setSelectedId(null); setSelectedGroupId(null); setCategory("all"); setSheet("closed"); setDate(value); setAutoFitSignal((signal) => signal + 1); updateUrl(value, null); };
+  const chooseDate = (value: string) => {
+    if (!isValidDate(value) || value === date) return;
+    const cached = readClientEventDay(dayCache.current, value);
+    setLoading(!cached);
+    setError(false);
+    setData(cached);
+    setSelectedId(null);
+    setSelectedGroupId(null);
+    setCategory("all");
+    setSheet("closed");
+    setDate(value);
+    setAutoFitSignal((signal) => signal + 1);
+    updateUrl(value, null);
+  };
   const chooseCategory = (value: FilterCategory) => { setCategory(value); setSelectedId(null); setSelectedGroupId(null); setAutoFitSignal((signal) => signal + 1); updateUrl(date, null); };
   const events = useMemo(() => data?.events || [], [data]);
   const availableEventCategories = useMemo(() => availableCategoriesForSearch(events, query), [events, query]);
@@ -256,21 +263,6 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
     }
     if (!next) setSelectedGroupId(null);
     setSheet(next ? "half" : "closed");
-  };
-
-  const openSafetyReport = (reportId: string) => {
-    const report = safetyReports.find((item) => item.id === reportId);
-    if (report) setFocus([...report.coordinates]);
-    setSelectedSafetyReportId(reportId);
-    setSafetyStartView("community");
-    setSafetyOpenKey((key) => key + 1);
-    setSafetyOpen(true);
-  };
-
-  const openSafetyCenter = (view: SafetyStartView = "official") => {
-    setSafetyStartView(view);
-    setSafetyOpenKey((key) => key + 1);
-    setSafetyOpen(true);
   };
 
   const openSafetyReport = (reportId: string) => {
