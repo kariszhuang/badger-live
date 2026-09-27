@@ -148,9 +148,10 @@ export async function getCampusPlaces(): Promise<CampusPlace[]> {
       from public.campus_places order by name limit 1000
     `;
     const metadataBySourceId = new Map(localCampusPlaceMetadata().map((place) => [place.sourcePlaceId, place]));
-    const places = rows.map((row) => {
+    const placesBySourceId = new Map(localCampusPlaceFallback().map((place) => [place.sourcePlaceId, place]));
+    for (const row of rows) {
       const metadata = metadataBySourceId.get(row.source_place_id);
-      return {
+      placesBySourceId.set(row.source_place_id, {
       id: row.id,
       sourcePlaceId: row.source_place_id,
       name: row.name,
@@ -159,8 +160,9 @@ export async function getCampusPlaces(): Promise<CampusPlace[]> {
       kind: row.kind,
       coordinates: [Number(row.longitude), Number(row.latitude)] as [number, number],
       officialSourceUrl: row.official_source_url,
-      };
-    });
+      });
+    }
+    const places = [...placesBySourceId.values()];
     placeCache = { places, expiresAt: Date.now() + 5 * 60_000 };
     unavailableUntil = 0;
     return places;

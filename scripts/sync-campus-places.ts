@@ -1,5 +1,5 @@
 import { readFile } from "node:fs/promises";
-import postgres from "postgres";
+import { Client } from "pg";
 import { parseCampusBuildings } from "../src/lib/campus-buildings";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -18,30 +18,46 @@ if (!databaseUrl) {
     for (const alias of candidates) aliasCandidates.set(alias.toLocaleLowerCase(), (aliasCandidates.get(alias.toLocaleLowerCase()) || 0) + 1);
   }
 
-  const sql = postgres(databaseUrl, { max: 1, connect_timeout: 10, prepare: false });
+  const poolerUrl = new URL(databaseUrl);
+  const isSupabasePooler = poolerUrl.hostname.endsWith(".pooler.supabase.com");
+  if (isSupabasePooler) {
+    poolerUrl.port = "6543";
+    poolerUrl.searchParams.delete("sslmode");
+  }
+  const client = new Client({
+    connectionString: poolerUrl.toString(),
+    connectionTimeoutMillis: 10_000,
+    ...(isSupabasePooler ? { ssl: { rejectUnauthorized: false } } : {}),
+  });
   try {
-    await sql.begin(async (tx) => {
+    await client.connect();
+    await client.query("BEGIN");
+    try {
       for (const { properties } of buildings.features) {
         const aliases = (aliasesById.get(properties.mapObjectId) || [])
           .filter((alias) => aliasCandidates.get(alias.toLocaleLowerCase()) === 1);
-        await tx`
+        await client.query(`
           insert into public.campus_places(source_place_id, name, aliases, kind, point, official_source_url, updated_at)
           values (
-            ${properties.mapObjectId}, ${properties.name}, ${tx.array(aliases)}, 'building',
-            extensions.st_setsrid(extensions.st_makepoint(${properties.center[0]}, ${properties.center[1]}), 4326)::extensions.geography,
-            ${properties.officialMapUrl}, now()
+            $1, $2, $3, 'building',
+            extensions.st_setsrid(extensions.st_makepoint($4, $5), 4326)::extensions.geography,
+            $6, now()
           )
           on conflict (source_place_id) do update set
             name = excluded.name, aliases = excluded.aliases, kind = excluded.kind,
             point = excluded.point, official_source_url = excluded.official_source_url, updated_at = now()
-        `;
+        `, [properties.mapObjectId, properties.name, aliases, properties.center[0], properties.center[1], properties.officialMapUrl]);
       }
-    });
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    }
     console.log(`Synced ${buildings.features.length} trusted UW campus places.`);
   } catch {
     console.error("Could not sync the checked-in campus place catalog to the configured database.");
     process.exitCode = 1;
   } finally {
-    await sql.end();
+    await client.end();
   }
 }
