@@ -1,6 +1,7 @@
 import "server-only";
-import postgres from "postgres";
+import type postgres from "postgres";
 import { databaseConnectionString } from "@/lib/database-url";
+import { createDatabaseClient } from "@/lib/database-client";
 import type { CommunityKind, CommunityUpdate } from "./types";
 
 type Row = {
@@ -13,7 +14,7 @@ let client: ReturnType<typeof postgres> | null = null;
 function db() {
   const url = databaseConnectionString();
   if (!url) throw new Error("Community database unavailable");
-  client ??= postgres(url, { max: 3, connect_timeout: 3, idle_timeout: 20, prepare: false });
+  client ??= createDatabaseClient(url);
   return client;
 }
 

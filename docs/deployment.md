@@ -46,6 +46,8 @@ Use separate projects and credentials for production and preview/staging. Requir
 | `REPORT_WRITES_ENABLED` | Server configuration | Must be the exact string `true` to enable report writes. Defaults off. |
 | `CRON_SECRET` | Server secret | Random bearer credential for the scheduled event import route. |
 
+On Vercel, the application uses Supabase's shared transaction pooler (port 6543) through `pg` with one connection per warm function instance. A `DATABASE_URL` pointing at the shared pooler host is converted from session port 5432 at runtime. The migration workflow keeps its separate `SUPABASE_DB_URL` session connection for schema changes. Do not use a direct database host as an app connection string on serverless Vercel without reviewing its connection limit.
+
 Keep the two HMAC keys and cron credential independent. Never put a database URI, OpenAI key, HMAC key, or cron secret in a `NEXT_PUBLIC_*` variable. This app uses the server-only Postgres URI instead of a Supabase service-role key.
 
 OpenAI's current model page lists `gpt-6-luna` for the Responses API and Structured Outputs, with image input support. That verifies the code path's documented model capability; API-key access in the intended project remains unverified until a live request succeeds. [OpenAI GPT-6 Luna model documentation](https://developers.openai.com/api/docs/models/gpt-6-luna).

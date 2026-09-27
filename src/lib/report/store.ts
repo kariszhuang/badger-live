@@ -1,6 +1,7 @@
 import "server-only";
-import postgres from "postgres";
+import type postgres from "postgres";
 import { databaseConnectionString } from "@/lib/database-url";
+import { createDatabaseClient } from "@/lib/database-client";
 import { localCampusPlaceFallback, localCampusPlaceMetadata, rankCampusPlaces } from "@/lib/campus-place-catalog";
 import type { CampusPlace, DuplicateCandidate, HazardKind, HazardReport, ReportLocationMethod, ReportSeverity } from "./types";
 
@@ -23,7 +24,7 @@ let placeCache: { expiresAt: number; places: CampusPlace[] } | null = null;
 function database() {
   const connectionString = databaseConnectionString();
   if (!connectionString || Date.now() < unavailableUntil) return null;
-  client ??= postgres(connectionString, { max: 3, connect_timeout: 3, idle_timeout: 20, prepare: false });
+  client ??= createDatabaseClient(connectionString);
   return client;
 }
 

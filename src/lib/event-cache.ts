@@ -1,8 +1,9 @@
 import "server-only";
-import postgres from "postgres";
+import type postgres from "postgres";
 import { campusEventSchema, type CampusEvent } from "./events";
 import { EVENT_CACHE_TTL_MS } from "./event-cache-policy";
 import { databaseConnectionString } from "./database-url";
+import { createDatabaseClient } from "./database-client";
 import { writeOfficialEventIndex } from "./official-event-index";
 
 const eventListSchema = campusEventSchema.array();
@@ -16,7 +17,7 @@ let retryAfter = 0;
 function database() {
   const connectionString = databaseConnectionString();
   if (!connectionString || Date.now() < retryAfter) return null;
-  client ??= postgres(connectionString, { max: 1, connect_timeout: 2, idle_timeout: 20, prepare: false });
+  client ??= createDatabaseClient(connectionString, 2);
   return client;
 }
 
