@@ -78,6 +78,32 @@ export function buildPromptEvaluations(): PromptEvaluation[] {
       },
     },
     {
+      id: "missing-actionable-condition",
+      mode: "report",
+      text: "Something is wrong here, but I can't tell what it is.",
+      places: [],
+      expect: {
+        intent: "report",
+        missingCriticalField: "issue",
+        followup: "present",
+        issueCount: 0,
+      },
+    },
+    {
+      id: "vague-past-observation-time",
+      mode: "report",
+      text: "A fallen branch blocked the path at Van Vleck a while back.",
+      places: [vanVleck],
+      expect: {
+        intent: "report",
+        requiredKinds: ["blocked_path"],
+        requiredLocationIntents: ["named_place"],
+        missingCriticalField: "time",
+        followup: "present",
+        issueCount: 1,
+      },
+    },
+    {
       id: "ask-mode-stays-read-only",
       mode: "ask",
       text: "Is the path icy near Van Vleck?",

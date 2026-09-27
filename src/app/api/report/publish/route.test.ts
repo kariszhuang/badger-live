@@ -159,6 +159,26 @@ describe("POST /api/report/publish", () => {
     expect(mocks.publishHazardBatch).not.toHaveBeenCalled();
   });
 
+  it("asks when intake marks the observation time as missing", async () => {
+    mocks.plan = makePlan([makeIssue()], "time");
+    const response = await POST(makeRequest({ text: "Icy here" }));
+    const body = await response.json();
+
+    expect(body).toMatchObject({ outcome: "needs_followup", itemIndex: 0, question: "When did you see this condition?" });
+    expect(mocks.findDuplicateCandidates).not.toHaveBeenCalled();
+    expect(mocks.publishHazardBatch).not.toHaveBeenCalled();
+  });
+
+  it("asks for an actionable description when intake marks the issue as missing", async () => {
+    mocks.plan = makePlan([], "issue");
+    const response = await POST(makeRequest({ text: "Something is wrong here" }));
+    const body = await response.json();
+
+    expect(body).toMatchObject({ outcome: "needs_followup", itemIndex: 0, question: "What physical condition did you see?" });
+    expect(mocks.findDuplicateCandidates).not.toHaveBeenCalled();
+    expect(mocks.publishHazardBatch).not.toHaveBeenCalled();
+  });
+
   it("honors a chosen map pin before a conflicting named place", async () => {
     mocks.places = [place];
     mocks.namedPlaces = [place];

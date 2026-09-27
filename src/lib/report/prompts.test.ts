@@ -10,6 +10,8 @@ describe("AI system prompt safety contract", () => {
     expect(prompt).toContain("evidence as an exact short substring");
     expect(prompt).toContain("Never produce coordinates or invent an entrance");
     expect(prompt).toContain("A named location in a past-tense report overrides current GPS");
+    expect(prompt).toContain("Set missing_critical_field to exactly one highest-priority gap");
+    expect(prompt).toContain("vague phrases such as 'a while ago' do not give enough timing information");
     expect(prompt).toContain("In Ask mode, set intent to question and never imply that a question publishes anything");
     expect(prompt).toContain("Sunday, September 27, 2026");
   });

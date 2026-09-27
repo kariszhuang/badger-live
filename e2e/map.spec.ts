@@ -477,6 +477,39 @@ test("report composer can use a map pin without granting GPS access", async ({ p
   await pinnedReport.getByRole("button", { name: "Cancel" }).click();
 });
 
+test("report time follow-up keeps the draft and requires an answer before retry", async ({ page }) => {
+  const submissions: Array<Record<string, unknown>> = [];
+  await page.route("**/api/report/publish", async (route) => {
+    const submission = route.request().postDataJSON() as Record<string, unknown>;
+    submissions.push(submission);
+    const result = submissions.length === 1
+      ? { outcome: "needs_followup", itemIndex: 0, question: "When did you see this condition?" }
+      : { outcome: "not_published", message: "Fixture stopped before publication." };
+    await route.fulfill({ status: submissions.length === 1 ? 200 : 422, contentType: "application/json", body: JSON.stringify(result) });
+  });
+
+  await page.goto("/?date=2026-09-26");
+  await page.getByRole("button", { name: "Report here" }).click();
+  const report = page.getByRole("dialog");
+  const description = "The sidewalk was icy near Van Vleck.";
+  await report.getByLabel("What did you see?").fill(description);
+  const send = report.getByRole("button", { name: "Send report" });
+  await send.click();
+
+  await expect(report.getByText("When did you see this condition?")).toBeVisible();
+  await expect(report.getByLabel("What did you see?")).toHaveValue(description);
+  const timeAnswer = report.getByPlaceholder("For example: about 20 minutes ago");
+  await expect(timeAnswer).toBeVisible();
+  await expect(send).toBeDisabled();
+  await timeAnswer.fill("about 20 minutes ago");
+  await expect(send).toBeEnabled();
+  await send.click();
+  await expect(report.getByRole("alert")).toContainText("Fixture stopped before publication.");
+  expect(submissions).toHaveLength(2);
+  expect(submissions[0].text).toBe(description);
+  expect(submissions[1].text).toBe(`${description}\nabout 20 minutes ago`);
+});
+
 test("campus building footprints load and open details directly from the map", async ({ page }) => {
   const buildingsResponse = page.waitForResponse((response) => response.url().endsWith("/data/uw-campus-buildings.geojson") && response.ok());
   await page.goto("/?date=2026-09-26");

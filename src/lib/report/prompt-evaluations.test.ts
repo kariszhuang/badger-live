@@ -11,12 +11,14 @@ const basePlan: IntakePlan = {
 };
 
 describe("report prompt evaluation fixtures", () => {
-  it("covers multi-issue, location, untrusted-input, emergency, and read-only scenarios", () => {
+  it("covers multi-issue, location, follow-up, untrusted-input, emergency, and read-only scenarios", () => {
     expect(buildPromptEvaluations().map((testCase) => testCase.id)).toEqual([
       "single-current-condition",
       "three-conditions-and-relative-place",
       "trusted-named-place-and-past-tense",
       "unresolved-relative-location",
+      "missing-actionable-condition",
+      "vague-past-observation-time",
       "ask-mode-stays-read-only",
       "ignore-injected-instructions",
       "immediate-emergency-is-out-of-scope",

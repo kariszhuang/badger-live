@@ -34,6 +34,7 @@ This is the implementation tracker for [`Badger_Live_Complete_Master_Plan.md`](.
 | 13 | No login, OAuth, moderator queue, or profile is needed to use the demo | Local review passed | No such UI or routes are in the product surface. |
 | 14 | Direct insert using the public database role is denied | Local database verified | Local Supabase checks confirmed public roles have no insert/update/delete grants on report and operational tables. Hosted role configuration remains unverified. |
 | 15 | Original photos, raw text, and capability secrets are absent from public API/map payloads | Local verified | Photo processing stays in memory; stored fields and DTOs are constrained; undo secrets are returned only to the submitting browser and only their hashes are stored. |
+| 16 | Missing actionable issue or vague observation time asks one question before publication | Local verified | Publish-route tests assert follow-up responses happen before duplicate lookup/write, including an empty issue list. Desktop/mobile browser tests verify the time answer is required and retained with the draft for an explicit retry; no publish endpoint reached the real database. |
 
 ## External verification still required
 

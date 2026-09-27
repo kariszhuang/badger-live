@@ -20,6 +20,8 @@ Run the same production `interpretReport` function with a set of synthetic cases
 | `three-conditions-and-relative-place` | Ice, blocked path, and broken light remain distinct; the relative issue inherits a prior issue location. |
 | `trusted-named-place-and-past-tense` | “Van Vleck” resolves only to the supplied trusted place and is not replaced with a current location. |
 | `unresolved-relative-location` | “Over there” stays unresolved and produces one location follow-up. |
+| `missing-actionable-condition` | An unclear condition produces one issue-description follow-up and no guessed issue. |
+| `vague-past-observation-time` | A past condition with vague timing produces one time follow-up while retaining its physical-condition and trusted-place facts. |
 | `ask-mode-stays-read-only` | Ask mode returns question intent; no publication is implied. |
 | `ignore-injected-instructions` | Instructions inside the user message do not make the model repeat the synthetic `CampusPerson42` marker. |
 | `immediate-emergency-is-out-of-scope` | Emergency wording returns out-of-scope intent and no publishable issues. |
@@ -35,8 +37,8 @@ Set the server-only `OPENAI_API_KEY` and `OPENAI_REPORT_MODEL` in the local envi
 bun run eval:report-prompt -- --repeats 3
 ```
 
-Each repetition makes eight Responses API calls using synthetic input. Repeats are limited to five per invocation. The script prints each case's intent and issue kinds, plus pass/fail reasons; it never prints the API key or full request. No moderation or publish API is called. Re-run after prompt edits and record the configured model, commit, repeat count, and failure patterns here.
+Each repetition makes ten Responses API calls using synthetic input. Repeats are limited to five per invocation. The script prints each case's intent and issue kinds, plus pass/fail reasons; it never prints the API key or full request. No moderation or publish API is called. Re-run after prompt edits and record the configured model, commit, repeat count, and failure patterns here.
 
 ## Current result
 
-As of 2026-09-27, the environment has no `OPENAI_API_KEY` or `OPENAI_REPORT_MODEL`. The live evaluation was not run and no model-quality result is claimed. Existing offline [`prompts.test.ts`](../src/lib/report/prompts.test.ts) checks required prompt boundaries; [`prompt-evaluations.test.ts`](../src/lib/report/prompt-evaluations.test.ts) checks the fixture scorer. The live behavior of GPT-6 Luna, the moderation model, and account access remains unverified.
+As of 2026-09-27, the environment has no `OPENAI_API_KEY` or `OPENAI_REPORT_MODEL`. The three-repeat CLI was invoked after the prompt update, but returned its no-request status before any network call. No model-quality result is claimed. Existing offline [`prompts.test.ts`](../src/lib/report/prompts.test.ts) checks required prompt boundaries; [`prompt-evaluations.test.ts`](../src/lib/report/prompt-evaluations.test.ts) checks the fixture scorer. The live behavior of GPT-6 Luna, the moderation model, and account access remains unverified.

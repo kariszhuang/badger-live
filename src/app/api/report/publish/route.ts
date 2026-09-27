@@ -106,7 +106,14 @@ export async function POST(request: NextRequest) {
       if (plan.intent === "out_of_scope") return jsonResponse({ outcome: "not_published", message: "This app publishes only non-identifying physical campus conditions. Immediate emergencies should go to 911 or verified official channels." }, 422);
       return jsonResponse({ outcome: "not_published", message: "Describe an observable physical campus condition to publish a report." }, 422);
     }
+    if (plan.missingCriticalField === "issue") {
+      return jsonResponse({ outcome: "needs_followup", itemIndex: 0, question: "What physical condition did you see?" }, 200);
+    }
     if (!plan.issues.length) return jsonResponse({ outcome: "not_published", message: "I couldn’t identify an eligible physical campus condition in that message." }, 422);
+    if (plan.missingCriticalField === "time") {
+      const itemIndex = Math.max(0, plan.issues.findIndex((issue) => issue.observedAtBasis !== "explicit_in_text"));
+      return jsonResponse({ outcome: "needs_followup", itemIndex, question: "When did you see this condition?" }, 200);
+    }
 
     const now = Date.now();
     const explicitPast = explicitPastReference(input.text);
