@@ -11,6 +11,7 @@ import type { CommunitySafetyReport } from "@/lib/safety";
 import { parseCampusBuildings, type CampusBuilding, type CampusBuildings } from "@/lib/campus-buildings";
 import { campusEventsAtBuilding, googleMapsDirectionsUrl } from "@/lib/campus-building-events";
 import type { EventsResult } from "@/lib/uw-events-api";
+import { readClientEventDay, writeClientEventDay, type ClientEventDayCache } from "@/lib/client-event-day-cache";
 import { EventCard } from "./event-card";
 import { CampusBuildingPhoto } from "./campus-building-photo";
 import { SafetyCenter } from "./safety-center";
@@ -28,6 +29,7 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
   const [date, setDate] = useState(initialDate);
   const [mode, setMode] = useState<DiscoveryMode>(initialMode);
   const [data, setData] = useState<EventsResult | null>(initial);
+  const dayCache = useRef<ClientEventDayCache<DayResponse>>(new Map());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(!initial);
   const [query, setQuery] = useState("");
@@ -89,15 +91,57 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
   }, [refreshSafetyReports]);
 
   useEffect(() => {
-    if (date === initialDate) return;
+    const initialFetch = window.setTimeout(() => void refreshSafetyReports(), 0);
+    const timer = window.setInterval(() => void refreshSafetyReports(), 90_000);
+    return () => { window.clearTimeout(initialFetch); window.clearInterval(timer); };
+  }, [refreshSafetyReports]);
+
+  useEffect(() => {
+    if (initial) writeClientEventDay(dayCache.current, initialDate, { ...initial, date: initialDate });
+  }, [initial, initialDate]);
+
+  useEffect(() => {
+    const cached = readClientEventDay(dayCache.current, date);
+    if (cached) {
+      setData(cached);
+      setError(false);
+      setLoading(false);
+      return;
+    }
+
     const controller = new AbortController();
+    setLoading(true);
     fetch(`/api/events?date=${encodeURIComponent(date)}`, { signal: controller.signal })
       .then(async (response) => { if (!response.ok) throw new Error("Calendar unavailable"); return response.json() as Promise<DayResponse>; })
-      .then((result) => { setData(result); setError(false); })
+      .then((result) => {
+        if (controller.signal.aborted) return;
+        writeClientEventDay(dayCache.current, date, result);
+        setData(result);
+        setError(false);
+      })
       .catch((reason) => { if (reason instanceof Error && reason.name !== "AbortError") setError(true); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [date, initialDate]);
+  }, [date]);
+
+  useEffect(() => {
+    if (mode !== "crime") return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setCrimeLoading(true);
+      setCrimeError("");
+      void fetch(`/api/safety/crimes?days=${crimeWindow}`, { signal: controller.signal })
+        .then(async (response) => {
+          const result = await response.json() as CrimeResponse;
+          if (!response.ok || !Array.isArray(result.incidents)) throw new Error(result.error || "UWPD blotter is unavailable");
+          return result;
+        })
+        .then(setCrimeData)
+        .catch((reason) => { if (reason instanceof Error && reason.name !== "AbortError") setCrimeError(reason.message || "UWPD blotter is unavailable"); })
+        .finally(() => { if (!controller.signal.aborted) setCrimeLoading(false); });
+    }, 0);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [mode, crimeWindow, crimeRefresh]);
 
   useEffect(() => {
     if (mode !== "crime") return;
@@ -212,6 +256,21 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
     }
     if (!next) setSelectedGroupId(null);
     setSheet(next ? "half" : "closed");
+  };
+
+  const openSafetyReport = (reportId: string) => {
+    const report = safetyReports.find((item) => item.id === reportId);
+    if (report) setFocus([...report.coordinates]);
+    setSelectedSafetyReportId(reportId);
+    setSafetyStartView("community");
+    setSafetyOpenKey((key) => key + 1);
+    setSafetyOpen(true);
+  };
+
+  const openSafetyCenter = (view: SafetyStartView = "official") => {
+    setSafetyStartView(view);
+    setSafetyOpenKey((key) => key + 1);
+    setSafetyOpen(true);
   };
 
   const openSafetyReport = (reportId: string) => {

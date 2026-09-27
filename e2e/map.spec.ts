@@ -131,6 +131,28 @@ test("real calendar, filters, source and date navigation", async ({ page }, test
   expect(errors).toEqual([]);
 });
 
+test("returning to the initially loaded date clears the calendar loading state", async ({ page }) => {
+  const requestedEventDates: string[] = [];
+  page.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.pathname === "/api/events") requestedEventDates.push(url.searchParams.get("date") ?? "");
+  });
+  await page.goto("/?date=2026-09-26");
+  const countLine = page.locator(".count-line");
+  await expect(countLine).toContainText("20 events");
+
+  await page.getByRole("button", { name: "Previous day" }).click();
+  await expect(page).toHaveURL(/date=2026-09-25/);
+  await expect(countLine).not.toHaveText("Loading official calendar…");
+  expect(requestedEventDates).toEqual(["2026-09-25"]);
+
+  await page.getByRole("button", { name: "Next day" }).click();
+  await expect(page).toHaveURL(/date=2026-09-26/);
+  expect(requestedEventDates).toEqual(["2026-09-25"]);
+  await expect(countLine).not.toHaveText("Loading official calendar…");
+  await expect(countLine).toContainText("20 events");
+});
+
 test("map and official event detail", async ({ page }, testInfo) => {
   let vectorTiles = 0;
   const errors: string[] = [];
@@ -345,6 +367,33 @@ test("campus safety toolbox prioritizes official help and keeps community report
   expect((await reviewerStatus.json()).reason).toBe("reviewer-unassigned");
 });
 
+test("campus safety toolbox prioritizes official help and keeps community reporting private", async ({ page }) => {
+  await page.goto("/?date=2026-09-26");
+  await page.getByRole("button", { name: "Safety, alerts & reports" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByRole("heading", { name: "Get help. Stay informed." })).toBeVisible();
+  await expect(dialog.getByRole("link", { name: /Immediate danger\? Call 911/ })).toHaveAttribute("href", "tel:911");
+  await expect(dialog.getByRole("link", { name: "UW Campus Alerts" })).toHaveAttribute("href", "https://alerts.wisc.edu/");
+  await expect(dialog.getByRole("link", { name: "Manage WiscAlerts" })).toHaveAttribute("href", "https://go.wisc.edu/wiscalerts");
+
+  await dialog.getByRole("button", { name: /Community reports/ }).click();
+  await expect(dialog.getByText("No reviewed community conditions are shared right now.")).toBeVisible();
+
+  await dialog.getByRole("button", { name: "Report a condition" }).click();
+  await expect(dialog.getByText(/No human reviewers are assigned yet/)).toBeVisible();
+  await expect(dialog.getByLabel("Campus building or place")).toBeVisible();
+  await expect(dialog.getByText(/not monitored or sent to UW/)).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Submit private report" })).toBeDisabled();
+
+  const reportResponse = await page.request.get("/api/safety/reports");
+  expect(reportResponse.status()).toBe(200);
+  expect((await reportResponse.json()).reports).toEqual([]);
+  const unsafeReport = await page.request.post("/api/safety/reports", { data: { category: "crime", buildingId: "0055", observedWindow: "just-now", description: "named allegation" } });
+  expect(unsafeReport.status()).toBe(400);
+  const reviewerStatus = await page.request.get("/api/safety/moderation/status");
+  expect((await reviewerStatus.json()).reason).toBe("reviewer-unassigned");
+});
+
 test("campus building footprints load and open details directly from the map", async ({ page }) => {
   const buildingsResponse = page.waitForResponse((response) => response.url().endsWith("/data/uw-campus-buildings.geojson") && response.ok());
   await page.goto("/?date=2026-09-26");
@@ -406,6 +455,24 @@ test("building details list all calendar events for the selected date", async ({
   await clickMapPoint(page, [-89.40045, 43.0763]);
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("heading", { name: "Memorial Union" })).toBeVisible();
+
+  await expect(dialog.getByRole("heading", { name: "Events on Saturday, September 26" })).toBeVisible();
+  const eventList = dialog.locator(".building-event-list");
+  await expect(eventList.locator(".event-card")).toHaveCount(5);
+  for (const title of ["Kid Disco on the Terrace Stage", "Model Magic Pretzels", "David Landau on the Terrace Stage", "Mural Tour in Stiftskeller", "Madison Tuba Band"]) {
+    await expect(eventList.getByText(title, { exact: true })).toBeVisible();
+  }
+  await expect(dialog.getByRole("link", { name: /Directions in Google Maps/ })).toHaveAttribute("href", "https://www.google.com/maps/dir/?api=1&destination=43.076421006278224%2C-89.39991444943722");
+  await eventList.locator(".event-card-main").first().click();
+  await expect(eventList.getByRole("link", { name: /Official event/ })).toHaveAttribute("href", /today\.wisc\.edu\/events\/view\/\d+/);
+});
+
+test("building details list all calendar events for the selected date", async ({ page }) => {
+  await page.goto("/?date=2026-09-26");
+  await page.getByRole("button", { name: /Explore campus buildings/ }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByPlaceholder("Search buildings, places, or uses").fill("Memorial Union");
+  await dialog.getByRole("button", { name: /Memorial Union/ }).click();
 
   await expect(dialog.getByRole("heading", { name: "Events on Saturday, September 26" })).toBeVisible();
   const eventList = dialog.locator(".building-event-list");
