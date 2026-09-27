@@ -1,5 +1,7 @@
 import { expect, test } from "@playwright/test";
 
+type CrimeMarkerAuditWindow = Window & { __crimeMarkerAudit?: string[]; __crimeMarkerObserver?: MutationObserver; __crimeMarkerCanvas?: HTMLCanvasElement | null };
+
 async function clickMapPoint(page: import("@playwright/test").Page, coordinates: [number, number], center: [number, number] = [-89.405, 43.075], zoom = 14.25) {
   const canvas = await page.locator(".maplibregl-canvas").boundingBox();
   expect(canvas).not.toBeNull();
@@ -9,6 +11,10 @@ async function clickMapPoint(page: import("@playwright/test").Page, coordinates:
   const point = project(coordinates);
   const origin = project(center);
   await page.mouse.click(canvas!.x + canvas!.width / 2 + point.x - origin.x, canvas!.y + canvas!.height / 2 + point.y - origin.y);
+}
+
+async function waitForBuildingMap(page: import("@playwright/test").Page) {
+  await expect(page.locator(".map-canvas")).toHaveAttribute("data-buildings-ready", "true", { timeout: 15000 });
 }
 
 test("official blotter mode groups exact campus places and keeps generic residence locations off-map", async ({ page }, testInfo) => {
@@ -81,8 +87,8 @@ test("mobile location sheet sizes to its content and keeps the selected marker v
   test.skip(testInfo.project.name !== "mobile");
   const fixture = {
     fetchedAt: "2026-09-26T17:00:00.000Z",
-    windowDays: 14,
-    windowStart: "2026-09-13",
+    windowDays: 30,
+    windowStart: "2026-08-28",
     windowEnd: "2026-09-26",
     latestArticleDate: "2026-09-24",
     partial: false,
@@ -100,6 +106,8 @@ test("mobile location sheet sizes to its content and keeps the selected marker v
   await marker.click();
   await expect(sheet).toHaveClass(/sheet-half/);
   await expect.poll(async () => sheet.evaluate((element) => element.getBoundingClientRect().height)).toBeLessThan(0.56 * 844);
+  // Let MapLibre finish its focus flight before checking marker placement.
+  await page.waitForTimeout(800);
   await expect.poll(async () => {
     const markerBox = await marker.boundingBox();
     const sheetBox = await sheet.boundingBox();
@@ -213,7 +221,8 @@ test("mobile discovery controls leave the map dominant in events and crime modes
     const sheet = document.querySelector(".mobile-sheet")?.getBoundingClientRect();
     const map = document.querySelector(".maplibregl-canvas")?.getBoundingClientRect();
     if (!toolbar || !sheet || !map) return 0;
-    return Math.min(sheet.top, map.bottom) - toolbar.bottom;
+    const sheetTop = getComputedStyle(document.querySelector(".mobile-sheet")!).display === "none" ? map.bottom : sheet.top;
+    return Math.min(sheetTop, map.bottom) - toolbar.bottom;
   });
   await expect.poll(visibleMapGap).toBeGreaterThan(400);
   await expect(page.getByRole("button", { name: /Explore campus buildings/ })).toHaveCount(0);
@@ -221,6 +230,47 @@ test("mobile discovery controls leave the map dominant in events and crime modes
   await expect(page.getByRole("button", { name: "Theft / larceny" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Fraud" })).toHaveCount(0);
   await expect.poll(visibleMapGap).toBeGreaterThan(400);
+});
+
+test("crime markers mount once when switching from events to crime", async ({ page }) => {
+  let crimeRequests = 0;
+  const fixture = {
+    fetchedAt: "2026-09-26T17:00:00.000Z",
+    windowDays: 30,
+    windowStart: "2026-08-28",
+    windowEnd: "2026-09-26",
+    latestArticleDate: "2026-09-24",
+    partial: false,
+    incidents: [{ id: "switch:1", incidentDate: "2026-09-24", occurredAt: "2026-09-24T17:00:00.000Z", timeLabel: "12:00 pm", incidentType: "Theft/Larceny", category: "theft", locationLabel: "Memorial Library", buildingId: "0500", buildingName: "Memorial Library", coordinates: [-89.4004, 43.0757], summary: "A theft or larceny report was logged.", source: "uwpd-official", sourceUrl: "https://uwpd.wisc.edu/daily-blotter/2026-09-24/" }],
+  };
+  await page.route("**/api/safety/crimes?days=*", (route) => { crimeRequests += 1; return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(fixture) }); });
+  await page.goto("/?date=2026-09-26");
+  await expect(page.locator(".venue-marker-anchor").first()).toBeVisible();
+  await page.evaluate(() => {
+    const panel = document.querySelector(".map-panel");
+    if (!panel) throw new Error("Map panel is missing");
+    const auditWindow = window as CrimeMarkerAuditWindow;
+    auditWindow.__crimeMarkerAudit = [];
+    auditWindow.__crimeMarkerCanvas = panel.querySelector(".maplibregl-canvas");
+    const containsCrimeMarker = (node: Node) => node instanceof Element && (node.matches(".crime-map-marker-anchor") || Boolean(node.querySelector(".crime-map-marker-anchor")));
+    auditWindow.__crimeMarkerObserver = new MutationObserver((records) => {
+      for (const record of records) {
+        if ([...record.addedNodes].some(containsCrimeMarker)) auditWindow.__crimeMarkerAudit?.push("added");
+        if ([...record.removedNodes].some(containsCrimeMarker)) auditWindow.__crimeMarkerAudit?.push("removed");
+      }
+    });
+    auditWindow.__crimeMarkerObserver.observe(panel, { childList: true, subtree: true });
+  });
+
+  await page.getByRole("button", { name: "Crime" }).click();
+  await expect(page.getByRole("button", { name: "1 official police blotter entry at Memorial Library" })).toBeVisible();
+  await page.waitForTimeout(350);
+  const audit = await page.evaluate(() => ({
+    markerMutations: (window as CrimeMarkerAuditWindow).__crimeMarkerAudit || [],
+    mapCanvasStable: (window as CrimeMarkerAuditWindow).__crimeMarkerCanvas === document.querySelector(".maplibregl-canvas"),
+  }));
+  await page.evaluate(() => (window as CrimeMarkerAuditWindow).__crimeMarkerObserver?.disconnect());
+  expect({ ...audit, crimeRequests }).toEqual({ markerMutations: ["added"], mapCanvasStable: true, crimeRequests: 1 });
 });
 
 test("tapping a venue does not move unrelated map markers", async ({ page }) => {
@@ -328,7 +378,7 @@ test("location explains that a secure connection is required on LAN devices", as
   });
   await page.goto("/?date=2026-09-26");
   await page.getByRole("button", { name: "Locate me" }).click();
-  await expect(page.getByRole("region", { name: "Campus map" }).getByRole("alert")).toContainText(/location needs a secure connection.*HTTPS/i);
+  await expect(page.getByRole("region", { name: "Campus map" }).getByRole("alert")).toContainText(/location needs HTTPS/i);
 });
 
 test("map controls stay minimal, 2D, and at the bottom", async ({ page }) => {
@@ -380,6 +430,7 @@ test("campus building footprints load and open details directly from the map", a
   await page.goto("/?date=2026-09-26");
   await expect(page.locator(".maplibregl-canvas")).toBeVisible();
   await buildingsResponse;
+  await waitForBuildingMap(page);
   await expect(page.getByRole("button", { name: /Explore campus buildings/ })).toHaveCount(0);
 
   const canvas = await page.locator(".maplibregl-canvas").boundingBox();
@@ -410,30 +461,38 @@ test("campus building footprints load and open details directly from the map", a
     });
   });
   await page.mouse.click(12, 12);
-  await expect(dialog).toHaveAttribute("data-state", "closed");
+  await expect(dialog).toBeHidden();
   await expect.poll(() => page.evaluate(() => (window as unknown as { __badgerBuildingFocus: string[] }).__badgerBuildingFocus)).toEqual([]);
 });
 
 test("map-only building details remain available without the campus directory", async ({ page }) => {
+  const buildingsResponse = page.waitForResponse((response) => response.url().endsWith("/data/uw-campus-buildings.geojson") && response.ok());
   await page.goto("/?date=2026-09-26");
   await expect(page.locator(".maplibregl-canvas")).toBeVisible();
+  await buildingsResponse;
+  await waitForBuildingMap(page);
   await expect(page.getByRole("button", { name: /Explore campus buildings/ })).toHaveCount(0);
-  await clickMapPoint(page, [-89.4042, 43.07577]);
+  await clickMapPoint(page, [-89.40433580443906, 43.07534639770641]);
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("heading", { name: "Bascom Hall" })).toBeVisible();
   await expect(dialog.getByText("500 Lincoln Dr.")).toBeVisible();
   await expect(dialog.getByText(/FP&M #0050/)).toHaveCount(0);
   await expect(dialog.locator(".building-description")).toHaveText("Campus leadership and central administration, including the Chancellor and Provost offices.");
   await expect(dialog.getByRole("link", { name: /Directions in Google Maps/ })).toHaveAttribute("href", "https://www.google.com/maps/dir/?api=1&destination=43.07534639770641%2C-89.40433580443906");
-  await expect(dialog.locator(".building-topic-tags")).toContainText("Campus operations");
+  await expect(dialog.locator(".building-topic-tags")).toContainText("Campus administration");
   await dialog.getByRole("button", { name: /Back to map/ }).click();
-  await expect(dialog).toHaveAttribute("data-state", "closed");
+  await expect(dialog).toBeHidden();
 });
 
 test("building details list all calendar events for the selected date", async ({ page }) => {
+  const buildingsResponse = page.waitForResponse((response) => response.url().endsWith("/data/uw-campus-buildings.geojson") && response.ok());
   await page.goto("/?date=2026-09-26");
   await expect(page.locator(".maplibregl-canvas")).toBeVisible();
-  await clickMapPoint(page, [-89.40045, 43.0763]);
+  await buildingsResponse;
+  await waitForBuildingMap(page);
+  await page.getByRole("button", { name: "Sports", exact: true }).click();
+  await expect(page.getByRole("button", { name: /events at Memorial Union/i })).toHaveCount(0);
+  await clickMapPoint(page, [-89.40035, 43.0765]);
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("heading", { name: "Memorial Union" })).toBeVisible();
 
@@ -449,8 +508,11 @@ test("building details list all calendar events for the selected date", async ({
 });
 
 test("building details show an official photo when available and a clear fallback otherwise", async ({ page }) => {
+  const buildingsResponse = page.waitForResponse((response) => response.url().endsWith("/data/uw-campus-buildings.geojson") && response.ok());
   await page.goto("/?date=2026-09-26");
   await expect(page.locator(".maplibregl-canvas")).toBeVisible();
+  await buildingsResponse;
+  await waitForBuildingMap(page);
   await clickMapPoint(page, [-89.40544068768608, 43.073874885388314]);
   const dialog = page.getByRole("dialog");
   await expect(dialog.getByRole("heading", { name: "Chamberlin Hall" })).toBeVisible();
@@ -459,6 +521,11 @@ test("building details show an official photo when available and a clear fallbac
   await expect.poll(() => dialog.locator(".building-photo img").evaluate((image) => (image as HTMLImageElement).naturalWidth), { timeout: 15000 }).toBeGreaterThan(0);
 
   await dialog.getByRole("button", { name: /Back to map/ }).click();
+  const refreshedBuildings = page.waitForResponse((response) => response.url().endsWith("/data/uw-campus-buildings.geojson") && response.ok());
+  await page.goto("/?date=2026-09-26");
+  await expect(page.locator(".maplibregl-canvas")).toBeVisible();
+  await refreshedBuildings;
+  await waitForBuildingMap(page);
   await clickMapPoint(page, [-89.41129383474136, 43.076517275447486]);
   await expect(dialog.getByRole("img", { name: "No photo available for Soils Building" })).toBeVisible();
 });

@@ -65,6 +65,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
     maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
     const style = mapKey ? `https://api.maptiler.com/maps/streets-v4/style.json?key=${encodeURIComponent(mapKey)}` : "https://tiles.openfreemap.org/styles/liberty";
     const instance = new maplibregl.Map({ container: container.current, style, center: CENTER, zoom: 14.25, minZoom: 11.5, maxZoom: 17, maxBounds: CAMPUS_MAP_BOUNDS, maxPitch: 0, attributionControl: false, pitchWithRotate: false, dragRotate: false });
+    container.current.dataset.buildingsReady = "false";
     instance.addControl(new maplibregl.AttributionControl({ compact: false }), "bottom-right");
     const attachHandlersWhenReady = () => {
       if (buildingHandlersAttached.current) return;
@@ -112,9 +113,13 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
     const syncCampusBuildings = () => {
       if (!buildingsRef.current || !instance.isStyleLoaded()) return;
       addCampusBuildings(instance, buildingsRef.current, selectedBuildingIdRef.current);
+      if (instance.getSource(BUILDING_SOURCE) && instance.getLayer(BUILDING_FILL)) {
+        container.current?.setAttribute("data-buildings-ready", "true");
+      }
       attachHandlersWhenReady();
     };
     instance.on("style.load", () => {
+      container.current?.setAttribute("data-buildings-ready", "false");
       applyCampusPalette(instance);
       if (instance.isStyleLoaded()) syncCampusBuildings();
       else instance.once("idle", syncCampusBuildings);
@@ -122,6 +127,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
     instance.on("error", () => {
       if (mapKey && !fallbackUsed.current) {
         fallbackUsed.current = true;
+        container.current?.setAttribute("data-buildings-ready", "false");
         console.warn("MapTiler tiles unavailable; switching to an open fallback basemap.");
         instance.setStyle("https://tiles.openfreemap.org/styles/liberty");
       }
@@ -148,6 +154,9 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
     const syncCampusBuildings = () => {
       if (!instance.isStyleLoaded()) return;
       addCampusBuildings(instance, buildings, selectedBuildingIdRef.current);
+      if (instance.getSource(BUILDING_SOURCE) && instance.getLayer(BUILDING_FILL)) {
+        container.current?.setAttribute("data-buildings-ready", "true");
+      }
       installBuildingHandlers.current?.();
     };
     if (instance.isStyleLoaded()) syncCampusBuildings();

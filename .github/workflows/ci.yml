@@ -18,13 +18,23 @@ jobs:
     runs-on: ubuntu-latest
     env:
       NEXT_PUBLIC_MAPTILER_KEY: ""
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:54322/postgres
     steps:
       - uses: actions/checkout@v7.0.1
       - uses: oven-sh/setup-bun@v2.2.0
       - run: bun ci
+      - name: Start local Supabase
+        run: bun run db:start
+      - name: Apply migrations to the ephemeral CI database
+        run: bun run db:reset
       - run: bun run lint
       - run: bun run typecheck
       - run: bun run test
       - run: bun run build
       - run: bunx playwright install --with-deps chromium
       - run: bun run test:e2e
+      - name: Stop local Supabase
+        if: always()
+        continue-on-error: true
+        run: bun run db:stop

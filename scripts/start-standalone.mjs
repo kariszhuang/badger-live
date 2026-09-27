@@ -2,9 +2,11 @@ import { cp, mkdir } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { resolve } from "node:path";
 
-const standaloneDirectory = resolve(".next/standalone");
-await mkdir(resolve(standaloneDirectory, ".next"), { recursive: true });
-await cp(resolve(".next/static"), resolve(standaloneDirectory, ".next/static"), { recursive: true, force: true });
+const nextDistDirectory = resolve(process.env.BADGER_NEXT_DIST_DIR || ".next");
+const standaloneDirectory = resolve(nextDistDirectory, "standalone");
+const standaloneStaticDirectory = resolve(standaloneDirectory, process.env.BADGER_NEXT_DIST_DIR || ".next", "static");
+await mkdir(standaloneStaticDirectory, { recursive: true });
+await cp(resolve(nextDistDirectory, "static"), standaloneStaticDirectory, { recursive: true, force: true });
 await cp(resolve("public"), resolve(standaloneDirectory, "public"), { recursive: true, force: true });
 
 const server = spawn(process.execPath, [resolve(standaloneDirectory, "server.js")], {

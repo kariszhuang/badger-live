@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   turbopack: { root: process.cwd() },
+  distDir: process.env.BADGER_NEXT_DIST_DIR || ".next",
   outputFileTracingRoot: process.cwd(),
   output: "standalone",
   agentRules: false,

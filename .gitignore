@@ -12,6 +12,8 @@ bun.lockb
 
 # Next.js and generated build output
 /.next/
+/.next-e2e/
+/.next-verify/
 /out/
 /build/
 /dist/
