@@ -505,6 +505,7 @@ test("report time follow-up keeps the draft and requires an answer before retry"
   await expect(send).toBeEnabled();
   await send.click();
   await expect(report.getByRole("alert")).toContainText("Fixture stopped before publication.");
+  await expect(report.getByLabel("What did you see?")).toHaveValue(`${description}\nabout 20 minutes ago`);
   expect(submissions).toHaveLength(2);
   expect(submissions[0].text).toBe(description);
   expect(submissions[1].text).toBe(`${description}\nabout 20 minutes ago`);

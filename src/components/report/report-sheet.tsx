@@ -31,6 +31,10 @@ function errorText(value: unknown, fallback: string) {
   return value && typeof value === "object" && "error" in value && typeof value.error === "string" ? value.error : fallback;
 }
 
+function isTimeFollowup(question: string) {
+  return /\bwhen did you see|when did you observe|what time\b/i.test(question);
+}
+
 function readFileAsDataUrl(blob: Blob) {
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
@@ -193,7 +197,12 @@ export function ReportSheet({ open, onOpenChange, initialText = "", pinCoordinat
     setError("");
     setFollowup("");
     setSending(true);
-    const combinedText = [text.trim(), followupAnswer.trim()].filter(Boolean).join("\n");
+    const timeAnswer = isTimeFollowup(followup) ? followupAnswer.trim() : "";
+    const combinedText = [text.trim(), timeAnswer].filter(Boolean).join("\n");
+    if (timeAnswer) {
+      setText(combinedText);
+      setFollowupAnswer("");
+    }
     const base = { mode: "report" as const, visitorId: getVisitorId(), text: combinedText, photo: photo || undefined, location: effectiveLocation, duplicateDecisions: decisions.length ? decisions : undefined };
     const fingerprint = JSON.stringify(base);
     if (fingerprint !== requestFingerprint.current) {
@@ -260,7 +269,7 @@ export function ReportSheet({ open, onOpenChange, initialText = "", pinCoordinat
     } catch (reason) { setError(reason instanceof Error ? reason.message : "This report can no longer be undone."); }
   };
 
-  const needsTime = /\bwhen did you see|when did you observe|what time\b/i.test(followup);
+  const needsTime = isTimeFollowup(followup);
   const unresolvedCount = duplicates.filter((issue) => !decisions.some((decision) => decision.itemIndex === issue.itemIndex)).length;
 
   return <Dialog open={open} onOpenChange={onOpenChange}>
