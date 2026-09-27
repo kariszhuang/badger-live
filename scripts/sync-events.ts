@@ -2,6 +2,7 @@ import postgres from "postgres";
 import { chicagoDate, isValidDate } from "../src/lib/chicago-date";
 import { normalizeEvents } from "../src/lib/events";
 import { EVENT_CACHE_TTL_MS } from "../src/lib/event-cache-policy";
+import { writeOfficialEventIndex } from "../src/lib/official-event-index";
 
 const date = process.argv[2] || chicagoDate();
 const databaseUrl = process.env.DATABASE_URL;
@@ -26,13 +27,16 @@ if (!isValidDate(date)) {
     const fetchedAt = new Date();
     const expiresAt = new Date(fetchedAt.valueOf() + EVENT_CACHE_TTL_MS);
     try {
-      await sql`
-        insert into public.uw_event_days (event_date, events, fetched_at, expires_at, source)
-        values (${date}::date, ${sql.json(events)}, ${fetchedAt.toISOString()}::timestamptz, ${expiresAt.toISOString()}::timestamptz, 'uw-official')
-        on conflict (event_date) do update
-        set events = excluded.events, fetched_at = excluded.fetched_at,
-            expires_at = excluded.expires_at, source = excluded.source
-      `;
+      await sql.begin(async (tx) => {
+        await tx`
+          insert into public.uw_event_days (event_date, events, fetched_at, expires_at, source)
+          values (${date}::date, ${tx.json(events)}, ${fetchedAt.toISOString()}::timestamptz, ${expiresAt.toISOString()}::timestamptz, 'uw-official')
+          on conflict (event_date) do update
+          set events = excluded.events, fetched_at = excluded.fetched_at,
+              expires_at = excluded.expires_at, source = excluded.source
+        `;
+        await writeOfficialEventIndex(tx, date, events, fetchedAt);
+      });
     } finally {
       await sql.end();
     }
