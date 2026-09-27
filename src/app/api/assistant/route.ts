@@ -121,6 +121,7 @@ export async function POST(request: NextRequest) {
     }, 200);
   } catch (error) {
     if (error instanceof OpenAIServiceError) {
+      console.warn("Campus assistant model response failed", { code: error.code, diagnostic: error.diagnostic });
       const message = error.code === "not-configured" ? "The campus assistant model is not available to this project."
         : error.code === "invalid-response" ? "The campus assistant returned an incomplete or invalid answer."
           : "The campus assistant is temporarily unavailable.";
