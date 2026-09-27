@@ -14,12 +14,12 @@ const serverOnlyVariables = [
   "TURNSTILE_SECRET_KEY",
 ];
 
-const distDirectory = path.resolve(process.env.BADGER_NEXT_DIST_DIR || ".next");
 const transportExtensions = new Set([".html", ".rsc", ".txt", ".json", ".body", ".meta", ".css"]);
 
 // Use Next's precedence and interpolation rules so `.env.local` and the
 // selected mode's files are included in the comparison.
 loadEnvConfig(process.cwd(), process.env.NODE_ENV === "development");
+const distDirectory = path.resolve(process.env.BADGER_NEXT_DIST_DIR || ".next");
 
 async function filesUnder(directory: string, includeAllFiles: boolean): Promise<string[]> {
   let entries;

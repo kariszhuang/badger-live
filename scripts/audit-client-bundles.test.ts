@@ -27,9 +27,18 @@ async function makeBuildFixture(contents: string) {
   return fixtureDirectory;
 }
 
-function runAudit(environment: NodeJS.ProcessEnv) {
-  return spawnSync("bun", ["run", "scripts/audit-client-bundles.ts"], {
-    cwd: process.cwd(),
+async function makeEnvironmentBuildFixture() {
+  fixtureDirectory = await mkdtemp(path.join(os.tmpdir(), "badger-live-bundle-audit-env-"));
+  const staticDirectory = path.join(fixtureDirectory, "fixture-dist", "static");
+  await mkdir(staticDirectory, { recursive: true });
+  await writeFile(path.join(staticDirectory, "app.js"), "const publicAsset = true;");
+  await writeFile(path.join(fixtureDirectory, ".env.production.local"), "BADGER_NEXT_DIST_DIR=fixture-dist\n");
+  return fixtureDirectory;
+}
+
+function runAudit(environment: NodeJS.ProcessEnv, cwd = process.cwd()) {
+  return spawnSync("bun", ["run", path.join(process.cwd(), "scripts/audit-client-bundles.ts")], {
+    cwd,
     env: environment,
     encoding: "utf8",
   });
@@ -57,16 +66,19 @@ describe("client bundle audit", () => {
     expect(combinedOutput).not.toContain(secret);
   });
 
-  it("passes when browser assets and the configured values do not match", async () => {
-    const output = runAudit({
+  it("loads the custom build directory from Next env files before scanning", async () => {
+    const environment: NodeJS.ProcessEnv = {
       ...process.env,
       ...Object.fromEntries(serverOnlyVariables.map((name) => [name, ""])),
       NODE_ENV: "production",
-      BADGER_NEXT_DIST_DIR: await makeBuildFixture("const publicAsset = true;"),
-    });
+    };
+    delete environment.BADGER_NEXT_DIST_DIR;
+    const cwd = await makeEnvironmentBuildFixture();
+    const output = runAudit(environment, cwd);
 
     expect(output.error).toBeUndefined();
     expect(output.status).toBe(0);
     expect(output.stdout).toContain("Client bundle audit passed");
+    expect(output.stdout).toContain("1 browser-facing assets");
   });
 });
