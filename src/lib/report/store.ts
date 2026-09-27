@@ -250,17 +250,26 @@ export async function getPublishedHazardBatch(input: { batchId: string; requestD
 export async function publishHazardBatch(input: {
   batchId: string; requestDigest: string; browserHmac: string; items: PublishBatchItem[];
   capabilityHashes: Array<{ item_index: number; secret_sha256: string }>;
+  originalText: string; originalPhoto: string | null;
 }): Promise<PublishedHazardBatch> {
   const sql = database();
   if (!sql) throw new ReportStoreError("unavailable");
   try {
-    const rows = await sql<{ result: unknown }[]>`
-      select public.publish_report_batch(
-        ${input.batchId}::uuid, ${input.requestDigest}, ${input.browserHmac},
-        ${sql.json(input.items)}, ${sql.json(input.capabilityHashes)}
-      ) as result
-    `;
-    const result = decodePublishedHazardBatch(rows[0]?.result);
+    const result = await sql.begin(async (transaction) => {
+      const rows = await transaction<{ result: unknown }[]>`
+        select public.publish_report_batch(
+          ${input.batchId}::uuid, ${input.requestDigest}, ${input.browserHmac},
+          ${sql.json(input.items)}, ${sql.json(input.capabilityHashes)}
+        ) as result
+      `;
+      const published = decodePublishedHazardBatch(rows[0]?.result);
+      await transaction`
+        insert into internal.report_private_inputs(batch_id, original_text, photo_data_url)
+        values (${input.batchId}::uuid, ${input.originalText}, ${input.originalPhoto})
+        on conflict (batch_id) do nothing
+      `;
+      return published;
+    });
     unavailableUntil = 0;
     return result;
   } catch (error) {

@@ -168,7 +168,9 @@ describe("POST /api/report/publish", () => {
       makeIssue({ evidence: "Very icy here" }),
       makeIssue({ kind: "broken_light", evidence: "light is broken", locationIntent: "relative", relativeToIssueIndex: 0 }),
     ]);
-    const response = await POST(makeRequest({ text: "Very icy here, and the light is broken next to it." }));
+    const originalText = "Very icy here, and the light is broken next to it.";
+    const originalPhoto = "data:image/png;base64,aGVsbG8=";
+    const response = await POST(makeRequest({ text: originalText, photo: originalPhoto }));
     const body = await response.json();
 
     expect(response.status).toBe(200);
@@ -176,6 +178,7 @@ describe("POST /api/report/publish", () => {
     expect(mocks.moderateReportInput).toHaveBeenCalledTimes(1);
     expect(mocks.interpretReport).toHaveBeenCalledTimes(1);
     expect(mocks.publishHazardBatch).toHaveBeenCalledTimes(1);
+    expect(mocks.publishHazardBatch).toHaveBeenCalledWith(expect.objectContaining({ originalText, originalPhoto }));
     expect(mocks.submittedItems).toHaveLength(2);
     expect(mocks.submittedItems[0]).toMatchObject({ item_index: 0, kind: "ice", action: "new" });
     expect(mocks.submittedItems[1]).toMatchObject({ item_index: 1, kind: "broken_light", action: "new" });

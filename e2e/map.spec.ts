@@ -428,7 +428,7 @@ test("verified help stays separate from the anonymous physical-condition report 
   await expect(report.getByRole("heading", { name: "Report a campus condition" })).toBeVisible();
   await expect(report.getByLabel("What did you see?")).toBeVisible();
   await expect(report.getByRole("button", { name: /Choose on map/ })).toBeVisible();
-  await expect(report.getByText(/original message and photo are not published or saved/)).toBeVisible();
+  await expect(report.getByText(/OpenAI analyzes your message and any photo.*saved privately for 7 days/i)).toBeVisible();
   await expect.poll(async () => report.evaluate((element) => {
     const box = element.getBoundingClientRect();
     return box.left >= -1 && box.top >= -1 && box.right <= window.innerWidth + 1 && box.bottom <= window.innerHeight + 1;

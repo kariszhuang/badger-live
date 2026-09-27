@@ -238,6 +238,8 @@ export async function POST(request: NextRequest) {
       browserHmac: fingerprints.visitorHmac,
       items: reportItems,
       capabilityHashes: newIssueTokens.map(({ id, token }) => ({ item_index: issues.find((issue) => reportIds.get(issue.itemIndex) === id)!.itemIndex, secret_sha256: createCapabilityHash(token) })),
+      originalText: input.text,
+      originalPhoto: input.photo || null,
     });
     const capabilities = published.reports
       .filter((report) => report.undoAvailable)

@@ -346,7 +346,7 @@ export function ReportSheet({ open, onOpenChange, initialText = "", pinCoordinat
       <DialogHeader className="report-dialog-header">
         <span className="report-kicker"><MapPin size={14} /> UNVERIFIED CAMPUS OBSERVATION</span>
         <DialogTitle>{receipt ? receiptTitle(receipt) : "Report a campus condition"}</DialogTitle>
-        <DialogDescription>{receipt ? receiptDescription(receipt) : "Describe a visible physical condition. Your original message and photo are not published or saved."}</DialogDescription>
+        <DialogDescription>{receipt ? receiptDescription(receipt) : "Describe what you observed."}</DialogDescription>
       </DialogHeader>
 
       {receipt ? <div className="report-receipt">
@@ -385,8 +385,7 @@ export function ReportSheet({ open, onOpenChange, initialText = "", pinCoordinat
         {followup && <div className="report-followup" role="status"><ShieldAlert size={17} /><div><strong>One detail is needed</strong><span>{followup}</span></div></div>}
         <div className="report-text-label">
           <div className="report-text-heading"><label className="report-section-label" htmlFor="report-description">WHAT DID YOU SEE?</label>{dictation.supported && <button className={`report-dictation-button ${dictation.listening ? "is-listening" : ""}`} type="button" aria-label={dictation.listening ? "Stop voice dictation" : "Start voice dictation"} aria-pressed={dictation.listening} aria-describedby="report-dictation-privacy" disabled={sending} onClick={() => { setComposerExpanded(true); if (dictation.listening) dictation.stop(); else dictation.start(); }}>{dictation.listening ? <MicOff size={15} /> : <Mic size={15} />}{dictation.listening ? "Stop" : "Dictate"}</button>}</div>
-          {dictation.supported && <small id="report-dictation-privacy" className="report-dictation-privacy">Your browser&apos;s speech service may process microphone audio to make a transcript. Badger Live receives only the text; it is sent to OpenAI when you press Send.</small>}
-          {!dictation.supported && <small className="report-dictation-privacy">Voice dictation isn&apos;t available in this browser. You can type or use your keyboard&apos;s dictation.</small>}
+          {dictation.supported && <small id="report-dictation-privacy" className="report-dictation-privacy">Dictation uses your browser&apos;s speech service.</small>}
           <textarea id="report-description" rows={4} maxLength={2000} value={text} onFocus={(event) => {
             setComposerExpanded(true);
             if (window.innerHeight <= 700) {
@@ -415,7 +414,7 @@ export function ReportSheet({ open, onOpenChange, initialText = "", pinCoordinat
         </article>)}</section>}
 
         {error && <p className="report-error" role="alert">{error}</p>}
-        <p className="report-privacy-note">Your text and optional photo are sent to OpenAI for analysis. Badger Live does not save them or show them publicly; only a templated issue, approximate location, and observation time are published. Reports are unverified.</p>
+        <p className="report-privacy-note">OpenAI analyzes your message and any photo. If accepted, they’re saved privately for 7 days; only an unverified summary and approximate location appear on the map.</p>
         </div>
         <div className="report-footer-actions"><button type="button" className="report-cancel-button" onClick={() => onOpenChange(false)}>Cancel</button><button className="report-primary-button" type="submit" disabled={sending || dictation.listening || !text.trim() || (duplicates.length > 0 && unresolvedCount > 0) || Boolean(followup && needsTime && !followupAnswer.trim())}>{sending ? <><span className="report-spinner" />Checking and sending…</> : duplicates.length ? "Confirm choices & send" : "Send report"}<Navigation size={15} /></button></div>
       </form>}
