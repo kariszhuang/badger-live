@@ -12,6 +12,8 @@ type HazardRow = {
   expires_at: Date | string; version: number;
 };
 type PlaceRow = { id: string; source_place_id: string; name: string; aliases: string[]; kind: CampusPlace["kind"]; longitude: number | string; latitude: number | string; official_source_url: string };
+type PublishedHazard = HazardReport & { undoAvailable?: boolean; recheckStatus?: string };
+type PublishedHazardBatch = { idempotent: boolean; reports: PublishedHazard[] };
 
 let client: Sql | null = null;
 let unavailableUntil = 0;
@@ -66,6 +68,29 @@ function toHazardReport(row: HazardRow): HazardReport {
     lastObservedAt: new Date(row.last_observed_at).toISOString(),
     expiresAt: new Date(row.expires_at).toISOString(),
     version: Number(row.version),
+  };
+}
+
+function decodePublishedHazardBatch(value: unknown, idempotentFallback = false): PublishedHazardBatch {
+  const result = typeof value === "string" ? JSON.parse(value) as Record<string, unknown> : value as Record<string, unknown> | null;
+  if (!result || typeof result !== "object" || !Array.isArray(result.reports)) throw new Error("Invalid saved report receipt");
+  return {
+    idempotent: idempotentFallback || result.idempotent === true,
+    reports: result.reports.map((value) => {
+      if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Invalid saved report row");
+      const row = value as Record<string, unknown>;
+      return {
+        id: String(row.id), kind: row.kind as HazardKind, title: String(row.title),
+        coordinates: [Number(row.longitude), Number(row.latitude)], placeId: row.placeId ? String(row.placeId) : null,
+        locationMethod: row.locationMethod as ReportLocationMethod,
+        locationAccuracyM: row.locationAccuracyM === null ? null : Number(row.locationAccuracyM),
+        reportedSeverity: row.reportedSeverity as ReportSeverity, observationLabel: "unverified",
+        lifecycle: row.lifecycle as HazardReport["lifecycle"], observationCount: Number(row.observationCount),
+        observedAt: new Date(String(row.observedAt)).toISOString(), lastObservedAt: new Date(String(row.lastObservedAt)).toISOString(),
+        expiresAt: new Date(String(row.expiresAt)).toISOString(), version: Number(row.version),
+        undoAvailable: row.undoAvailable === true, recheckStatus: typeof row.recheckStatus === "string" ? row.recheckStatus : undefined,
+      };
+    }),
   };
 }
 
@@ -198,10 +223,34 @@ export async function findDuplicateCandidates(input: { kind: HazardKind; longitu
   }
 }
 
+export async function getPublishedHazardBatch(input: { batchId: string; requestDigest: string }): Promise<PublishedHazardBatch | null> {
+  const sql = database();
+  if (!sql) throw new ReportStoreError("unavailable");
+  try {
+    const rows = await sql<Array<{ request_digest: string; response_json: unknown }>>`
+      select request_digest, response_json from internal.report_submissions where batch_id = ${input.batchId}::uuid
+    `;
+    const existing = rows[0];
+    if (!existing) {
+      unavailableUntil = 0;
+      return null;
+    }
+    if (existing.request_digest !== input.requestDigest) throw new ReportStoreError("idempotency_conflict");
+    if (existing.response_json === null) throw new ReportStoreError("unavailable");
+    const result = decodePublishedHazardBatch(existing.response_json, true);
+    unavailableUntil = 0;
+    return result;
+  } catch (error) {
+    if (error instanceof ReportStoreError) throw error;
+    databaseFailed("idempotency lookup");
+    throw new ReportStoreError("unavailable");
+  }
+}
+
 export async function publishHazardBatch(input: {
   batchId: string; requestDigest: string; browserHmac: string; items: PublishBatchItem[];
   capabilityHashes: Array<{ item_index: number; secret_sha256: string }>;
-}): Promise<{ idempotent: boolean; reports: Array<HazardReport & { undoAvailable?: boolean; recheckStatus?: string }> }> {
+}): Promise<PublishedHazardBatch> {
   const sql = database();
   if (!sql) throw new ReportStoreError("unavailable");
   try {
@@ -211,24 +260,9 @@ export async function publishHazardBatch(input: {
         ${sql.json(input.items)}, ${sql.json(input.capabilityHashes)}
       ) as result
     `;
-    const raw = rows[0]?.result;
-    const result = typeof raw === "string" ? JSON.parse(raw) as { idempotent?: boolean; reports?: Array<Record<string, unknown>> } : raw as { idempotent?: boolean; reports?: Array<Record<string, unknown>> };
-    if (!result || !Array.isArray(result.reports)) throw new Error("invalid response");
+    const result = decodePublishedHazardBatch(rows[0]?.result);
     unavailableUntil = 0;
-    return {
-      idempotent: result.idempotent === true,
-      reports: result.reports.map((row) => ({
-        id: String(row.id), kind: row.kind as HazardKind, title: String(row.title),
-        coordinates: [Number(row.longitude), Number(row.latitude)], placeId: row.placeId ? String(row.placeId) : null,
-        locationMethod: row.locationMethod as ReportLocationMethod,
-        locationAccuracyM: row.locationAccuracyM === null ? null : Number(row.locationAccuracyM),
-        reportedSeverity: row.reportedSeverity as ReportSeverity, observationLabel: "unverified",
-        lifecycle: row.lifecycle as HazardReport["lifecycle"], observationCount: Number(row.observationCount),
-        observedAt: new Date(String(row.observedAt)).toISOString(), lastObservedAt: new Date(String(row.lastObservedAt)).toISOString(),
-        expiresAt: new Date(String(row.expiresAt)).toISOString(), version: Number(row.version),
-        undoAvailable: row.undoAvailable === true, recheckStatus: typeof row.recheckStatus === "string" ? row.recheckStatus : undefined,
-      })),
-    };
+    return result;
   } catch (error) {
     if (error instanceof Error && /idempotency key reused/.test(error.message)) throw new ReportStoreError("idempotency_conflict");
     if (error instanceof Error && /recheck candidate/.test(error.message)) throw new ReportStoreError("duplicate_changed");

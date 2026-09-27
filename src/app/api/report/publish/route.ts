@@ -5,7 +5,7 @@ import { readBoundedJson, RequestBodyError } from "@/lib/report/body";
 import { IntakeServiceError, interpretReport, moderateReportInput } from "@/lib/report/intake";
 import { createCapabilityHash, createCapabilityToken, createRequestDigest, createRequestFingerprints, deterministicReportId, FingerprintConfigurationError } from "@/lib/report/visitor-fingerprint";
 import { checkRequestRateLimits, jsonResponse, MAX_REPORT_REQUEST_BYTES, reportWritesEnabled, requestHasAllowedOrigin } from "@/lib/report/route-helpers";
-import { findDuplicateCandidates, findNamedPlacesInText, getCampusPlaces, publishHazardBatch, ReportStoreError } from "@/lib/report/store";
+import { findDuplicateCandidates, findNamedPlacesInText, getCampusPlaces, getPublishedHazardBatch, publishHazardBatch, ReportStoreError } from "@/lib/report/store";
 import { resolveIssueLocation } from "@/lib/report/location-resolution";
 import type { HazardKind, ReportLocationMethod, ReportSeverity } from "@/lib/report/types";
 
@@ -94,6 +94,29 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const digest = createRequestDigest({
+      mode: input.mode,
+      submissionId: input.submissionId,
+      text: input.text,
+      photoDigest: input.photo ? createHash("sha256").update(input.photo).digest("hex") : null,
+      location: input.location || null,
+      duplicateDecisions: input.duplicateDecisions || [],
+      browserHmac: fingerprints.visitorHmac,
+    });
+    const previousReceipt = await getPublishedHazardBatch({ batchId: input.submissionId, requestDigest: digest });
+    if (previousReceipt) {
+      const capabilities = previousReceipt.reports
+        .filter((report) => report.undoAvailable)
+        .map((report) => ({ reportId: report.id, token: createCapabilityToken(report.id) }));
+      return jsonResponse({
+        outcome: "posted",
+        postedCount: previousReceipt.reports.filter((report) => report.undoAvailable).length,
+        reports: previousReceipt.reports,
+        capabilities,
+        idempotent: true,
+      }, 200);
+    }
+
     const moderation = await moderateReportInput(input.text, input.photo);
     if (!moderation.allowed) return jsonResponse({ outcome: "not_published", message: "This message could not be shared as a campus condition report." }, 422);
 
@@ -187,14 +210,6 @@ export async function POST(request: NextRequest) {
     }
     if (unresolvedDuplicates.length) return jsonResponse({ outcome: "possible_duplicates", issues: unresolvedDuplicates }, 200);
 
-    const digest = createRequestDigest({
-      mode: input.mode,
-      submissionId: input.submissionId,
-      text: input.text,
-      photoDigest: input.photo ? createHash("sha256").update(input.photo).digest("hex") : null,
-      location: input.location || null,
-      duplicateDecisions: input.duplicateDecisions || [],
-    });
     const reportIds = new Map(issues.map((issue) => [issue.itemIndex, deterministicReportId(input.submissionId, issue.itemIndex)]));
     const newIssueTokens = issues
       .filter((issue) => actions.get(issue.itemIndex)?.action === "new")

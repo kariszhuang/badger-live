@@ -8,9 +8,12 @@ const mocks = vi.hoisted(() => ({
   namedPlaces: [] as Array<Record<string, unknown>>,
   candidates: [] as Array<Record<string, unknown>>,
   submittedItems: [] as Array<Record<string, unknown>>,
+  existingBatch: null as unknown,
+  createRequestDigest: vi.fn(),
   interpretReport: vi.fn(),
   moderateReportInput: vi.fn(),
   findDuplicateCandidates: vi.fn(),
+  getPublishedHazardBatch: vi.fn(),
   publishHazardBatch: vi.fn(),
 }));
 
@@ -37,6 +40,7 @@ vi.mock("@/lib/report/store", () => ({
     constructor(readonly code: "unavailable" | "idempotency_conflict" | "duplicate_changed" | "invalid" | "not_found") { super(code); }
   },
   findDuplicateCandidates: (...args: unknown[]) => mocks.findDuplicateCandidates(...args),
+  getPublishedHazardBatch: (...args: unknown[]) => mocks.getPublishedHazardBatch(...args),
   findNamedPlacesInText: async () => mocks.namedPlaces,
   getCampusPlaces: async () => mocks.places,
   publishHazardBatch: (...args: unknown[]) => mocks.publishHazardBatch(...args),
@@ -46,7 +50,7 @@ vi.mock("@/lib/report/visitor-fingerprint", () => ({
   FingerprintConfigurationError: class FingerprintConfigurationError extends Error {},
   createCapabilityHash: () => "c".repeat(64),
   createCapabilityToken: (id: string) => `${id}.undo-token`,
-  createRequestDigest: () => "d".repeat(64),
+  createRequestDigest: (...args: unknown[]) => mocks.createRequestDigest(...args),
   deterministicReportId: (_submissionId: string, itemIndex: number) => `00000000-0000-4000-8000-${String(itemIndex + 1).padStart(12, "0")}`,
 }));
 
@@ -120,13 +124,45 @@ beforeEach(() => {
   mocks.namedPlaces = [];
   mocks.candidates = [];
   mocks.submittedItems = [];
+  mocks.existingBatch = null;
+  mocks.createRequestDigest.mockReset().mockReturnValue("d".repeat(64));
   mocks.interpretReport.mockReset().mockImplementation(async () => mocks.plan);
   mocks.moderateReportInput.mockReset().mockResolvedValue({ allowed: true });
   mocks.findDuplicateCandidates.mockReset().mockImplementation(async () => mocks.candidates);
+  mocks.getPublishedHazardBatch.mockReset().mockImplementation(async () => mocks.existingBatch);
   mocks.publishHazardBatch.mockReset().mockImplementation(async (input: { items: Array<Record<string, unknown>> }) => preparePublishedRows(input));
 });
 
 describe("POST /api/report/publish", () => {
+  it("returns the original receipt before duplicate checks on an identical retry", async () => {
+    const reportId = "00000000-0000-4000-8000-000000000222";
+    const timestamp = new Date().toISOString();
+    mocks.existingBatch = {
+      idempotent: true,
+      reports: [{
+        id: reportId, kind: "ice", title: "Icy surface", coordinates: [-89.407, 43.071], placeId: null,
+        locationMethod: "gps", locationAccuracyM: 18, reportedSeverity: "unknown", observationLabel: "unverified",
+        lifecycle: "active", observationCount: 1, observedAt: timestamp, lastObservedAt: timestamp,
+        expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(), version: 1, undoAvailable: true,
+      }],
+    };
+
+    const response = await POST(makeRequest({ text: "Icy here" }));
+    const body = await response.json();
+
+    expect(body).toMatchObject({
+      outcome: "posted", postedCount: 1, idempotent: true,
+      reports: [{ id: reportId, observationLabel: "unverified" }],
+      capabilities: [{ reportId, token: `${reportId}.undo-token` }],
+    });
+    expect(mocks.createRequestDigest).toHaveBeenCalledWith(expect.objectContaining({ browserHmac: "b".repeat(64) }));
+    expect(mocks.getPublishedHazardBatch).toHaveBeenCalledWith({ batchId: "00000000-0000-4000-8000-000000000100", requestDigest: "d".repeat(64) });
+    expect(mocks.moderateReportInput).not.toHaveBeenCalled();
+    expect(mocks.interpretReport).not.toHaveBeenCalled();
+    expect(mocks.findDuplicateCandidates).not.toHaveBeenCalled();
+    expect(mocks.publishHazardBatch).not.toHaveBeenCalled();
+  });
+
   it("publishes a multi-issue message in one atomic batch and resolves relative issues together", async () => {
     mocks.plan = makePlan([
       makeIssue({ evidence: "Very icy here" }),
