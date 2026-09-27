@@ -14,7 +14,12 @@ export type LocationResolution = { reason: LocationResolutionReason | null; valu
 type PreviousLocation = Pick<ResolvedReportLocation, "coordinates" | "placeId" | "locationMethod" | "accuracy">;
 
 function asPlaceLocation(place: CampusPlace): ResolvedReportLocation {
-  return { coordinates: place.coordinates, placeId: place.id, locationMethod: "place", accuracy: null };
+  return {
+    coordinates: place.coordinates,
+    placeId: place.id,
+    locationMethod: place.id ? "place" : "pin",
+    accuracy: null,
+  };
 }
 
 export function resolveIssueLocation(input: {

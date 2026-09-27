@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { Camera, Check, LocateFixed, MapPin, Mic, MicOff, Navigation, Pencil, RotateCcw, Search, ShieldAlert, X } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { searchLocalCampusPlaces } from "@/lib/campus-place-catalog";
 import { hazardKinds, type CampusPlace, type DuplicateCandidate, type HazardKind, type HazardReport, type ReportLocation } from "@/lib/report/types";
 import { useReportDictation } from "@/lib/report/use-report-dictation";
 import { getVisitorId, newSubmissionId, saveUndoCapabilities } from "@/lib/report/visitor-id";
@@ -151,7 +152,7 @@ export function ReportSheet({ open, onOpenChange, initialText = "", pinCoordinat
   const activeSubmissionId = useRef("");
   const effectiveLocation = pinCoordinates
     ? { method: "pin" as const, longitude: pinCoordinates[0], latitude: pinCoordinates[1] }
-    : selectedPlace ? { method: "place" as const, placeId: selectedPlace.id } : location;
+    : selectedPlace?.id ? { method: "place" as const, placeId: selectedPlace.id } : location;
   const normalizedPlaceQuery = placeQuery.trim();
   const activePlaceSearchResult = placeSearchResult?.query === normalizedPlaceQuery ? placeSearchResult : null;
   const visiblePlaceResults = normalizedPlaceQuery.length >= 2 ? activePlaceSearchResult?.places || [] : [];
@@ -201,7 +202,12 @@ export function ReportSheet({ open, onOpenChange, initialText = "", pinCoordinat
         })
         .catch((reason) => {
           if (reason instanceof Error && reason.name !== "AbortError") {
-            setPlaceSearchResult({ query, places: [], message: "Campus place search is unavailable. Choose a point on the map instead." });
+            const places = searchLocalCampusPlaces(query);
+            setPlaceSearchResult({
+              query,
+              places,
+              message: places.length ? "Showing the saved campus catalog." : "No campus places match. Try another name or choose a point on the map.",
+            });
           }
         });
     }, 180);
@@ -211,7 +217,9 @@ export function ReportSheet({ open, onOpenChange, initialText = "", pinCoordinat
   const choosePlace = (place: CampusPlace) => {
     ++generation.current;
     gpsCleanup.current?.();
-    setLocation({ method: "place", placeId: place.id });
+    setLocation(place.id
+      ? { method: "place", placeId: place.id }
+      : { method: "pin", longitude: place.coordinates[0], latitude: place.coordinates[1] });
     setSelectedPlace(place);
     setLocationMessage(`Campus place selected · ${place.name}`);
     setLocating(false);
@@ -385,7 +393,7 @@ export function ReportSheet({ open, onOpenChange, initialText = "", pinCoordinat
         {followup && <div className="report-followup" role="status"><ShieldAlert size={17} /><div><strong>One detail is needed</strong><span>{followup}</span></div></div>}
         <div className="report-text-label">
           <div className="report-text-heading"><label className="report-section-label" htmlFor="report-description">WHAT DID YOU SEE?</label>{dictation.supported && <button className={`report-dictation-button ${dictation.listening ? "is-listening" : ""}`} type="button" aria-label={dictation.listening ? "Stop voice dictation" : "Start voice dictation"} aria-pressed={dictation.listening} aria-describedby="report-dictation-privacy" disabled={sending} onClick={() => { setComposerExpanded(true); if (dictation.listening) dictation.stop(); else dictation.start(); }}>{dictation.listening ? <MicOff size={15} /> : <Mic size={15} />}{dictation.listening ? "Stop" : "Dictate"}</button>}</div>
-          {dictation.supported && <small id="report-dictation-privacy" className="report-dictation-privacy">Dictation uses your browser&apos;s speech service.</small>}
+          {dictation.supported && <small id="report-dictation-privacy" className="report-dictation-privacy">Your browser&apos;s speech service may process microphone audio.</small>}
           <textarea id="report-description" rows={4} maxLength={2000} value={text} onFocus={(event) => {
             setComposerExpanded(true);
             if (window.innerHeight <= 700) {

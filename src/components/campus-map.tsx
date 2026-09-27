@@ -7,6 +7,8 @@ import type { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
 import type { FeatureCollection } from "geojson";
 import type { EventCategory, VenueGroup } from "@/lib/events";
 import type { HazardReport } from "@/lib/report/types";
+import type { CommunityUpdate } from "@/lib/community/types";
+import { CommunityIcon } from "./community/community-icon";
 import type { PlannedWalkingRoute } from "./routes/route-planner";
 import { findCampusBuildingAt, type CampusBuilding, type CampusBuildings } from "@/lib/campus-buildings";
 import { CAMPUS_MAP_BOUNDS } from "@/lib/campus-map-bounds";
@@ -14,7 +16,7 @@ import { type CrimeCategory, type CrimeVenueGroup } from "@/lib/crime-model";
 import { CAMPUS_BUILDING_FILL_PAINT, campusBuildingLayerInsertionPoints } from "@/lib/campus-building-map-style";
 import { CrimeCategoryIcon } from "./category-icons";
 
-type Props = { groups: VenueGroup[]; selectedGroupId: string | null; liveGroupIds: string[]; crimeGroups: CrimeVenueGroup[]; selectedCrimeGroupId: string | null; onSelectCrimeGroup: (id: string) => void; hazards: HazardReport[]; hazardsVisible: boolean; selectedHazardId: string | null; onSelectHazard: (id: string) => void; candidateRoute: PlannedWalkingRoute | null; pickingLocation: boolean; onMapPoint: (coordinates: [number, number]) => void; onSelect: (id: string) => void; focus: [number, number] | null; sheetLevel: "closed" | "half" | "full"; userLocation: [number, number] | null; campusSignal: number; mapKey: string; buildings: CampusBuildings | null; selectedBuildingId: string | null; onSelectBuilding: (building: CampusBuilding, coordinates: [number, number]) => void };
+type Props = { groups: VenueGroup[]; selectedGroupId: string | null; liveGroupIds: string[]; crimeGroups: CrimeVenueGroup[]; selectedCrimeGroupId: string | null; onSelectCrimeGroup: (id: string) => void; hazards: HazardReport[]; hazardsVisible: boolean; selectedHazardId: string | null; onSelectHazard: (id: string) => void; communityUpdates: CommunityUpdate[]; selectedCommunityId: string | null; onSelectCommunity: (id: string) => void; candidateRoute: PlannedWalkingRoute | null; pickingLocation: boolean; previewPoint: [number, number] | null; onMapPoint: (coordinates: [number, number]) => void; onSelect: (id: string) => void; focus: [number, number] | null; sheetLevel: "closed" | "half" | "full"; userLocation: [number, number] | null; campusSignal: number; mapKey: string; buildings: CampusBuildings | null; selectedBuildingId: string | null; onSelectBuilding: (building: CampusBuilding, coordinates: [number, number]) => void };
 const CENTER: [number, number] = [-89.405, 43.075];
 const BUILDING_SOURCE = "uw-campus-buildings";
 const BUILDING_FILL = "uw-campus-building-fill";
@@ -41,13 +43,17 @@ const ICON_PATHS: Record<EventCategory, string[]> = {
 };
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, selectedCrimeGroupId, onSelectCrimeGroup, hazards, hazardsVisible, selectedHazardId, onSelectHazard, candidateRoute, pickingLocation, onMapPoint, onSelect, focus, sheetLevel, userLocation, campusSignal, mapKey, buildings, selectedBuildingId, onSelectBuilding }: Props) {
+export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, selectedCrimeGroupId, onSelectCrimeGroup, hazards, hazardsVisible, selectedHazardId, onSelectHazard, communityUpdates, selectedCommunityId, onSelectCommunity, candidateRoute, pickingLocation, previewPoint, onMapPoint, onSelect, focus, sheetLevel, userLocation, campusSignal, mapKey, buildings, selectedBuildingId, onSelectBuilding }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const markers = useRef<Marker[]>([]);
   const crimeMarkers = useRef<Marker[]>([]);
   const crimeIconRoots = useRef<Root[]>([]);
+  const communityMarkers = useRef<Marker[]>([]);
+  const communityIconRoots = useRef<Root[]>([]);
+  const onSelectCommunityRef = useRef(onSelectCommunity);
   const userMarker = useRef<Marker | null>(null);
+  const previewMarker = useRef<Marker | null>(null);
   const fallbackUsed = useRef(false);
   const onSelectRef = useRef(onSelect);
   const onSelectHazardRef = useRef(onSelectHazard);
@@ -65,6 +71,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
   const buildingHandlersAttached = useRef(false);
   useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
   useEffect(() => { onSelectHazardRef.current = onSelectHazard; }, [onSelectHazard]);
+  useEffect(() => { onSelectCommunityRef.current = onSelectCommunity; }, [onSelectCommunity]);
   useEffect(() => { onMapPointRef.current = onMapPoint; }, [onMapPoint]);
   useEffect(() => { hazardsRef.current = hazards; }, [hazards]);
   useEffect(() => { hazardsVisibleRef.current = hazardsVisible; }, [hazardsVisible]);
@@ -157,11 +164,15 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
     });
     map.current = instance;
     const mountedCrimeRoots = crimeIconRoots.current;
+    const mountedCommunityRoots = communityIconRoots.current;
     return () => {
       markers.current.forEach((marker) => marker.remove()); markers.current = [];
       unmountRoots(mountedCrimeRoots);
       crimeMarkers.current.forEach((marker) => marker.remove()); crimeMarkers.current = [];
+      unmountRoots(mountedCommunityRoots);
+      communityMarkers.current.forEach((marker) => marker.remove()); communityMarkers.current = [];
       userMarker.current?.remove(); userMarker.current = null;
+      previewMarker.current?.remove(); previewMarker.current = null;
       installBuildingHandlers.current = null; buildingHandlersAttached.current = false;
       instance.remove(); map.current = null;
     };
@@ -288,6 +299,38 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
   }, [crimeGroups, selectedCrimeGroupId]);
 
   useEffect(() => {
+    const roots = communityIconRoots.current;
+    unmountRoots(roots);
+    communityMarkers.current.forEach((marker) => marker.remove());
+    communityMarkers.current = [];
+    const instance = map.current;
+    if (!instance || !hazardsVisible) return;
+    communityMarkers.current = communityUpdates.map((update) => {
+      const element = document.createElement("button");
+      element.type = "button";
+      element.className = `community-map-marker kind-${update.kind}${update.isDemo ? " is-demo" : ""}`;
+      element.dataset.communityId = update.id;
+      element.setAttribute("aria-label", `${update.isDemo ? "Demo example" : "Unofficial update"}: ${update.title} at ${update.placeName}`);
+      element.title = `${update.title} · ${update.placeName}${update.isDemo ? " · Demo example" : " · Unofficial"}`;
+      const symbol = document.createElement("span");
+      const root = createRoot(symbol);
+      root.render(<CommunityIcon kind={update.kind} size={20} />);
+      roots.push(root);
+      element.append(symbol);
+      element.addEventListener("click", (event) => { event.stopPropagation(); onSelectCommunityRef.current(update.id); });
+      return new maplibregl.Marker({ element, anchor: "center" }).setLngLat(update.coordinates).addTo(instance);
+    });
+    return () => {
+      unmountRoots(roots);
+      communityMarkers.current.forEach((marker) => marker.remove()); communityMarkers.current = [];
+    };
+  }, [communityUpdates, hazardsVisible]);
+
+  useEffect(() => {
+    communityMarkers.current.forEach((marker) => marker.getElement().classList.toggle("is-selected", marker.getElement().dataset.communityId === selectedCommunityId));
+  }, [communityUpdates, selectedCommunityId]);
+
+  useEffect(() => {
     markers.current.forEach((marker) => {
       const element = marker.getElement();
       element.classList.toggle("is-selected", element.dataset.groupId === selectedGroupId);
@@ -320,6 +363,21 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
   }, [pickingLocation]);
 
   useEffect(() => {
+    previewMarker.current?.remove();
+    previewMarker.current = null;
+    if (!map.current || !previewPoint) return;
+    const element = document.createElement("div");
+    element.className = "map-point-preview-marker";
+    element.setAttribute("role", "img");
+    element.setAttribute("aria-label", "Preview pin for the point you are choosing");
+    previewMarker.current = new maplibregl.Marker({ element, anchor: "bottom" }).setLngLat(previewPoint).addTo(map.current);
+    return () => {
+      previewMarker.current?.remove();
+      previewMarker.current = null;
+    };
+  }, [previewPoint]);
+
+  useEffect(() => {
     userMarker.current?.remove();
     userMarker.current = null;
     if (!map.current || !userLocation) return;
@@ -347,7 +405,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
     instance.flyTo({ center: focus, zoom: Math.max(instance.getZoom(), 15), offset, essential: true });
   }, [focus, sheetLevel]);
   useEffect(() => { if (campusSignal && map.current) map.current.flyTo({ center: CENTER, zoom: 14.25, essential: true }); }, [campusSignal]);
-  return <div ref={container} className="map-canvas" role="application" aria-label="Interactive map of UW–Madison event venues" />;
+  return <div ref={container} className="map-canvas" role="application" aria-label="Interactive map of UW–Madison campus" />;
 }
 
 function addCampusBuildings(instance: MapLibreMap, collection: CampusBuildings | null, selectedBuildingId: string | null) {

@@ -35,7 +35,7 @@ async function main() {
   for (let run = 1; run <= repeats; run += 1) {
     for (const testCase of cases) {
       try {
-        const plan = await interpretReport({ mode: testCase.mode, text: testCase.text, places: testCase.places });
+        const plan = await interpretReport({ mode: testCase.mode, text: testCase.text, places: testCase.places, context: testCase.context });
         const failures = scorePromptEvaluation(testCase, plan);
         if (failures.length) {
           failed += 1;
@@ -46,7 +46,9 @@ async function main() {
         }
       } catch (error) {
         failed += 1;
-        const reason = error instanceof IntakeServiceError ? error.code : "request failed";
+        const reason = error instanceof IntakeServiceError
+          ? [error.code, error.diagnostic].filter(Boolean).join(":")
+          : "request failed";
         console.error(`FAIL run ${run} · ${testCase.id} · ${reason}`);
       }
     }

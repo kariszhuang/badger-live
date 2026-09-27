@@ -21,10 +21,12 @@ export type ReportLocation =
   | { method: "place"; placeId: string };
 
 export type CampusPlace = {
-  id: string;
+  /** Database UUID when available. Local trusted map results use a null ID and resolve as approximate pins. */
+  id: string | null;
   sourcePlaceId: string;
   name: string;
   aliases: string[];
+  keywords?: string[];
   kind: "building" | "entrance" | "campus_area";
   coordinates: [longitude: number, latitude: number];
   officialSourceUrl: string;

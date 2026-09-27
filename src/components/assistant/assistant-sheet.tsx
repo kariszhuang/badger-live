@@ -74,7 +74,6 @@ export function AssistantSheet({ open, onOpenChange, date, initialQuery = "", on
         <p className="assistant-source-note">{answer.dataFreshness.eventSource} data · Community observations are not verified and may be inaccurate.</p>
         {answer.reportActionAvailable && <button type="button" className="assistant-report-action" onClick={() => onPostAsReport(query)}><MapPin size={15} />Post this as a report</button>}
       </section>}
-      <div className="assistant-disclaimer"><ShieldAlert size={14} /><span>Badger Live is not an emergency service. For immediate danger, call 911.</span></div>
       {answer && <button type="button" className="assistant-clear" onClick={() => { setAnswer(null); setQuery(""); setError(""); }}><X size={14} />Clear this conversation</button>}
     </DialogContent>
   </Dialog>;

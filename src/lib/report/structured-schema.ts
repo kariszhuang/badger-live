@@ -7,7 +7,7 @@ export const intakePlanSchema = z.object({
     kind: z.enum(hazardKinds),
     evidence: z.string().max(240).nullable(),
     place_name: z.string().max(120).nullable(),
-    observed_at: z.string().datetime().nullable(),
+    observed_at: z.string().datetime({ offset: true }).nullable(),
     observed_at_basis: z.enum(["submission", "explicit_in_text", "unknown"]),
     location_intent: z.enum(["here", "named_place", "relative", "missing"]),
     relative_to_issue_index: z.number().int().min(0).max(7).nullable(),

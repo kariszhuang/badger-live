@@ -1,6 +1,7 @@
 import "server-only";
 import postgres from "postgres";
 import { databaseConnectionString } from "@/lib/database-url";
+import { localCampusPlaceFallback, localCampusPlaceMetadata, rankCampusPlaces } from "@/lib/campus-place-catalog";
 import type { CampusPlace, DuplicateCandidate, HazardKind, HazardReport, ReportLocationMethod, ReportSeverity } from "./types";
 
 type Sql = ReturnType<typeof postgres>;
@@ -137,7 +138,7 @@ export async function listPublicHazards(bounds: [west: number, south: number, ea
 export async function getCampusPlaces(): Promise<CampusPlace[]> {
   if (placeCache && placeCache.expiresAt > Date.now()) return placeCache.places;
   const sql = database();
-  if (!sql) throw new ReportStoreError("unavailable");
+  if (!sql) return localCampusPlaceFallback();
   try {
     const rows = await sql<PlaceRow[]>`
       select id, source_place_id, name, aliases, kind,
@@ -145,29 +146,32 @@ export async function getCampusPlaces(): Promise<CampusPlace[]> {
         extensions.st_y(point::extensions.geometry) as latitude, official_source_url
       from public.campus_places order by name limit 1000
     `;
-    const places = rows.map((row) => ({
+    const metadataBySourceId = new Map(localCampusPlaceMetadata().map((place) => [place.sourcePlaceId, place]));
+    const places = rows.map((row) => {
+      const metadata = metadataBySourceId.get(row.source_place_id);
+      return {
       id: row.id,
       sourcePlaceId: row.source_place_id,
       name: row.name,
-      aliases: row.aliases || [],
+      aliases: [...new Set([...(row.aliases || []), ...(metadata?.aliases || [])])],
+      keywords: metadata?.keywords || [],
       kind: row.kind,
       coordinates: [Number(row.longitude), Number(row.latitude)] as [number, number],
       officialSourceUrl: row.official_source_url,
-    }));
+      };
+    });
     placeCache = { places, expiresAt: Date.now() + 5 * 60_000 };
     unavailableUntil = 0;
     return places;
   } catch {
     databaseFailed("campus place read");
-    throw new ReportStoreError("unavailable");
+    return localCampusPlaceFallback();
   }
 }
 
 export async function searchCampusPlaces(query: string): Promise<CampusPlace[]> {
   const places = await getCampusPlaces();
-  const needle = query.trim().toLocaleLowerCase();
-  if (!needle) return [];
-  return places.filter((place) => [place.name, ...place.aliases].some((name) => name.toLocaleLowerCase().includes(needle))).slice(0, 12);
+  return rankCampusPlaces(places, query);
 }
 
 export async function resolveCampusPlace(value: string): Promise<CampusPlace | null> {

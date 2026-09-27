@@ -6,6 +6,7 @@ import { getUwpdBlotter } from "@/lib/uwpd-blotter";
 import { readBoundedJson, RequestBodyError } from "@/lib/report/body";
 import { fallbackPhysicalIssueKinds } from "@/lib/report/policy";
 import { assistantSystemPrompt } from "@/lib/report/prompts";
+import { callOpenAI, OpenAIServiceError, parseOpenAIStructuredOutput } from "@/lib/report/openai-client";
 import { checkRequestRateLimits, jsonResponse, requestHasAllowedOrigin } from "@/lib/report/route-helpers";
 import { getAssistantHazardRows, getCampusPlaces, ReportStoreError } from "@/lib/report/store";
 import { FingerprintConfigurationError } from "@/lib/report/visitor-fingerprint";
@@ -72,7 +73,7 @@ export async function POST(request: NextRequest) {
       const id = `H${index}`;
       const placeName = report.placeId ? placeNames.get(report.placeId) : null;
       sources.push({ id, kind: "hazard", title: report.title, date: report.lastObservedAt });
-      return { id, kind: report.kind, title: report.title, place: placeName || "Approximate campus location", location_accuracy_m: report.locationAccuracyM, lifecycle: report.lifecycle, observation_count: report.observationCount, last_observed_at: report.lastObservedAt, observation_label: "unverified", coordinates: report.coordinates };
+      return { id, kind: report.kind, title: report.title, place: placeName || "Approximate campus location", location_accuracy_m: report.locationAccuracyM, lifecycle: report.lifecycle, observation_count: report.observationCount, last_observed_at: report.lastObservedAt, observation_label: "unverified" };
     });
 
     let officialRecordContext: Array<Record<string, unknown>> = [];
@@ -88,48 +89,43 @@ export async function POST(request: NextRequest) {
     }
 
     const apiKey = process.env.OPENAI_API_KEY;
-    const model = process.env.OPENAI_ASSISTANT_MODEL || process.env.OPENAI_REPORT_MODEL;
-    if (!apiKey || !model) return jsonResponse({ error: "The campus assistant AI is not configured for this deployment yet." }, 503);
-    const context = JSON.stringify({
+    const model = process.env.OPENAI_ASSISTANT_MODEL?.trim() || process.env.OPENAI_REPORT_MODEL?.trim() || "gpt-6-luna";
+    if (!apiKey) return jsonResponse({ error: "The campus assistant AI is not configured for this deployment yet." }, 503);
+    const context = {
       date,
       timezone: "America/Chicago",
       events: eventContext,
       unverified_community_observations: hazardContext,
       historical_official_records: officialRecordContext,
       official_archive_unavailable: officialRecordContext.length === 0 && /\b(?:uwpd|police|blotter|historical incident|official record|crime record)\b/i.test(input.query),
-    });
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
+    };
+    const responseBody = await callOpenAI("responses", {
         model,
         input: [
           { role: "system", content: [{ type: "input_text", text: assistantSystemPrompt }] },
-          { role: "user", content: [{ type: "input_text", text: JSON.stringify({ query: input.query, context: JSON.parse(context) }) }] },
+          { role: "user", content: [{ type: "input_text", text: JSON.stringify({ query: input.query, context }) }] },
         ],
         text: { format: { type: "json_schema", name: "campus_answer", strict: true, schema: answerJsonSchema } },
         max_output_tokens: 650,
         store: false,
-      }),
-      signal: AbortSignal.timeout(18_000),
-      cache: "no-store",
-    });
-    if (!response.ok) return jsonResponse({ error: response.status === 401 || response.status === 403 || response.status === 404 ? "The campus assistant model is not available to this project." : "The campus assistant is temporarily unavailable." }, 502);
-    const responseBody = await response.json() as { output?: Array<{ content?: Array<{ type?: string; text?: string }> }> };
-    const text = responseBody.output?.flatMap((item) => item.content || []).find((part) => part.type === "output_text")?.text;
-    if (!text) return jsonResponse({ error: "The campus assistant returned an incomplete answer." }, 502);
-    const decoded = answerSchema.safeParse(JSON.parse(text));
-    if (!decoded.success) return jsonResponse({ error: "The campus assistant returned an invalid answer." }, 502);
+      }, 18_000);
+    const decoded = parseOpenAIStructuredOutput(responseBody, answerSchema);
     const validSourceIds = new Set(sources.map((source) => source.id));
-    const visibleSources = decoded.data.source_ids.filter((id) => validSourceIds.has(id)).map((id) => sources.find((source) => source.id === id)!).slice(0, 6);
+    const visibleSources = decoded.source_ids.filter((id) => validSourceIds.has(id)).map((id) => sources.find((source) => source.id === id)!).slice(0, 6);
     return jsonResponse({
-      answer: decoded.data.answer,
+      answer: decoded.answer,
       sources: visibleSources,
-      reportActionAvailable: decoded.data.report_action_available && fallbackPhysicalIssueKinds(input.query).length > 0,
+      reportActionAvailable: decoded.report_action_available && fallbackPhysicalIssueKinds(input.query).length > 0,
       date,
       dataFreshness: { eventsFetchedAt: eventsResult?.fetchedAt || null, eventSource: "UW Today", observations: "unverified community reports" },
     }, 200);
   } catch (error) {
+    if (error instanceof OpenAIServiceError) {
+      const message = error.code === "not-configured" ? "The campus assistant model is not available to this project."
+        : error.code === "invalid-response" ? "The campus assistant returned an incomplete or invalid answer."
+          : "The campus assistant is temporarily unavailable.";
+      return jsonResponse({ error: message }, error.code === "not-configured" ? 503 : 502);
+    }
     if (error instanceof FingerprintConfigurationError || error instanceof ReportStoreError) return jsonResponse({ error: "The campus assistant is not configured on this server yet." }, 503);
     console.error("Read-only campus assistant request failed.");
     return jsonResponse({ error: "The campus assistant is temporarily unavailable." }, 503);

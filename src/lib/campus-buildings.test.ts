@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { campusBuildingPropertiesSchema, findCampusBuildingAt, parseCampusBuildings } from "./campus-buildings";
+import { campusBuildingPropertiesSchema, describeCampusMapPoint, findCampusBuildingAt, parseCampusBuildings } from "./campus-buildings";
 import { campusBuildingDescriptions } from "./campus-building-descriptions";
 
 describe("UW campus building data", () => {
@@ -52,6 +52,11 @@ describe("UW campus building data", () => {
     const vanVleck = findCampusBuildingAt(collection, [-89.405, 43.075]);
     expect(vanVleck?.properties.name).toBe("Van Vleck Hall");
     expect(findCampusBuildingAt(collection, [0, 0])).toBeUndefined();
+  });
+
+  it("labels a map preview with the trusted building under the pin", () => {
+    expect(describeCampusMapPoint(collection, [-89.405, 43.075])).toMatch(/^Near .+/);
+    expect(describeCampusMapPoint(null, [-89.405, 43.075])).toBe("Selected map point · approximate");
   });
 
   it("rejects malformed geometry rather than drawing invented outlines", () => {

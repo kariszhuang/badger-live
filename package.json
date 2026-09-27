@@ -20,7 +20,8 @@
     "db:reset": "supabase db reset",
     "db:status": "supabase status",
     "sync:events": "bun run scripts/sync-events.ts",
-    "sync:buildings": "bun run scripts/sync-campus-buildings.ts",
+    "sync:buildings": "bun run scripts/sync-campus-buildings.ts && bun run scripts/build-campus-place-index.ts",
+    "build:place-index": "bun run scripts/build-campus-place-index.ts",
     "sync:places": "bun run scripts/sync-campus-places.ts"
   },
   "dependencies": {

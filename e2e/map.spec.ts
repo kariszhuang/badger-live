@@ -17,7 +17,7 @@ async function waitForBuildingMap(page: import("@playwright/test").Page) {
   await expect(page.locator(".map-canvas")).toHaveAttribute("data-buildings-ready", "true", { timeout: 15000 });
 }
 
-test("official blotter mode groups exact campus places and keeps generic residence locations off-map", async ({ page }, testInfo) => {
+test("Crime mode groups exact campus places and keeps generic residence locations off-map", async ({ page }, testInfo) => {
   const fixture = {
     fetchedAt: "2026-09-26T17:00:00.000Z",
     windowDays: 30,
@@ -125,8 +125,10 @@ test("real calendar, filters, source and date navigation", async ({ page }, test
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/?date=2026-09-26");
+  await expect(page.getByText(/Badger Live is not an emergency service/i)).toHaveCount(0);
+  await expect(page.getByText(/Independent student project · Not an official UW service/i)).toHaveCount(0);
   if (testInfo.project.name === "desktop") {
-    await expect(page.getByRole("group", { name: "Choose official information layer" })).toBeVisible();
+    await expect(page.getByRole("group", { name: "Choose discovery layer" })).toBeVisible();
     await expect(page.getByText(/20 events · 14 on map · 6 without map locations/)).toBeVisible();
   }
   const list = testInfo.project.name === "mobile" ? page.locator(".mobile-sheet") : page.locator(".discovery-panel");
@@ -163,7 +165,7 @@ test("returning to the initially loaded date clears the calendar loading state",
   await expect(countLine).toContainText("20 events");
 });
 
-test("map and official event detail", async ({ page }, testInfo) => {
+test("map and event detail", async ({ page }, testInfo) => {
   let vectorTiles = 0;
   const errors: string[] = [];
   page.on("response", (response) => { if (new URL(response.url()).pathname.endsWith(".pbf") && response.status() === 200) vectorTiles++; });
@@ -209,7 +211,7 @@ test("mobile sheet expands from its accessible handle", async ({ page }, testInf
   await expect(page.locator(".mobile-sheet")).toHaveClass(/sheet-closed/);
 });
 
-test("mobile discovery controls leave the map dominant in events and official info modes", async ({ page }, testInfo) => {
+test("mobile discovery controls leave the map dominant in events and Crime modes", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile");
   await page.route("**/api/safety/crimes?days=*", (route) => route.fulfill({
     status: 200,
@@ -228,13 +230,13 @@ test("mobile discovery controls leave the map dominant in events and official in
   });
   await expect.poll(visibleMapGap).toBeGreaterThan(400);
   await expect(page.getByRole("button", { name: /Explore campus buildings/ })).toHaveCount(0);
-  await page.getByRole("button", { name: "Official info" }).click();
+  await page.getByRole("button", { name: "Crime" }).click();
   await expect(page.getByRole("button", { name: "Theft / larceny" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Fraud" })).toHaveCount(0);
   await expect.poll(visibleMapGap).toBeGreaterThan(400);
 });
 
-test("historical blotter markers mount once when switching to official info", async ({ page }) => {
+test("historical blotter markers mount once when switching to Crime", async ({ page }) => {
   let crimeRequests = 0;
   const fixture = {
     fetchedAt: "2026-09-26T17:00:00.000Z",
@@ -264,7 +266,7 @@ test("historical blotter markers mount once when switching to official info", as
     auditWindow.__crimeMarkerObserver.observe(panel, { childList: true, subtree: true });
   });
 
-  await page.getByRole("button", { name: "Official info" }).click();
+  await page.getByRole("button", { name: "Crime" }).click();
   await expect(page.getByRole("button", { name: "1 official police blotter entry at Memorial Library" })).toBeVisible();
   await page.waitForTimeout(350);
   const audit = await page.evaluate(() => ({
@@ -401,15 +403,20 @@ test("map controls stay minimal, 2D, and at the bottom", async ({ page }) => {
   expect(controlsBottomGap).toBeLessThan(90);
 });
 
+test("mobile Post update and Ask buttons sit near the bottom when the list sheet is closed", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile");
+  await page.goto("/?date=2026-09-26");
+  await expect(page.locator(".mobile-sheet")).toHaveClass(/sheet-closed/);
+  const actions = await page.locator(".map-actions").boundingBox();
+  const map = await page.getByRole("region", { name: "Campus map" }).boundingBox();
+  expect(actions).not.toBeNull();
+  expect(map).not.toBeNull();
+  expect(map!.y + map!.height - (actions!.y + actions!.height)).toBeLessThan(60);
+  await expect(page.getByRole("button", { name: "Post update" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Ask Badger" })).toBeVisible();
+});
+
 test("verified help stays separate from the anonymous physical-condition report flow", async ({ page }) => {
-  await page.route("**/api/places/search?*", async (route) => {
-    const query = new URL(route.request().url()).searchParams.get("q");
-    if (query === "Van Vleck") {
-      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ places: [{ id: "van-vleck", sourcePlaceId: "van-vleck", name: "Van Vleck Hall", aliases: ["Van Vleck"], kind: "building", coordinates: [-89.407, 43.0748], officialSourceUrl: "https://map.wisc.edu/" }] }) });
-    } else {
-      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Campus place search is temporarily unavailable." }) });
-    }
-  });
   await page.goto("/?date=2026-09-26");
   await page.getByRole("button", { name: "Safety alerts and resources" }).click();
   const dialog = page.getByRole("dialog");
@@ -417,7 +424,7 @@ test("verified help stays separate from the anonymous physical-condition report 
   await expect(dialog.getByRole("link", { name: /Immediate danger\? Call 911/ })).toHaveAttribute("href", "tel:911");
   await expect(dialog.getByRole("link", { name: "UW Campus Alerts" })).toHaveAttribute("href", "https://alerts.wisc.edu/");
   await expect(dialog.getByRole("link", { name: "Manage WiscAlerts" })).toHaveAttribute("href", "https://go.wisc.edu/wiscalerts");
-  await expect(dialog.getByText(/Badger Live is independent and is not an emergency service/)).toBeVisible();
+  await expect(dialog.getByText("Official campus alerts, police contacts, and support resources.")).toBeVisible();
   await expect(dialog.getByText(/reviewer|moderation|sign in/i)).toHaveCount(0);
   await dialog.getByRole("button", { name: "Close" }).click();
 
@@ -438,8 +445,6 @@ test("verified help stays separate from the anonymous physical-condition report 
   await expect(report.getByRole("status").filter({ hasText: /Searching campus places/ })).toHaveCount(0);
   await report.getByRole("option", { name: /Van Vleck Hall/ }).click();
   await expect(report.locator(".report-selected-place")).toContainText("Van Vleck Hall");
-  await report.getByLabel("Search a campus place").fill("Missing place");
-  await expect(report.getByRole("status").filter({ hasText: /search is unavailable/i })).toBeVisible();
   await report.getByRole("button", { name: "Cancel" }).click();
 
   await page.getByRole("button", { name: /Ask Badger/ }).click();
@@ -461,7 +466,38 @@ test("verified help stays separate from the anonymous physical-condition report 
   expect((await page.request.get("/api/safety/moderation/status")).status()).toBe(404);
 });
 
-test("report composer can use a map pin without granting GPS access", async ({ page }) => {
+test("campus place search matches names and keywords from the trusted map catalog", async ({ page }) => {
+  await page.goto("/?date=2026-09-26");
+  const named = await page.request.get("/api/places/search?q=Van%20Vleck");
+  expect(named.ok()).toBe(true);
+  const namedBody = await named.json() as { places: Array<{ id: string | null; name: string; coordinates: [number, number] }> };
+  expect(namedBody.places[0]).toMatchObject({ name: "Van Vleck Hall" });
+  expect(namedBody.places[0]?.coordinates.every(Number.isFinite)).toBe(true);
+
+  const keyword = await page.request.get("/api/places/search?q=mathematics");
+  expect(keyword.ok()).toBe(true);
+  const keywordBody = await keyword.json() as { places: Array<{ name: string }> };
+  expect(keywordBody.places.map((place) => place.name)).toContain("Van Vleck Hall");
+});
+
+test("report place search stays useful when its API request fails", async ({ page }) => {
+  await page.route("**/api/places/search?*", (route) => route.fulfill({
+    status: 503,
+    contentType: "application/json",
+    body: JSON.stringify({ error: "Campus place search is temporarily unavailable." }),
+  }));
+  await page.goto("/?date=2026-09-26");
+  await page.getByRole("button", { name: "Report here" }).click();
+  const report = page.getByRole("dialog");
+  await report.getByLabel("Search a campus place").fill("Memorial Union");
+  await expect(report.getByRole("option", { name: /Memorial Union/ })).toBeVisible();
+  await expect(report.getByRole("status")).toContainText("saved campus catalog");
+  await report.getByLabel("Search a campus place").fill("Unknown building");
+  await expect(report.getByRole("status")).toContainText("No campus places match");
+  await expect(report.getByRole("status")).not.toContainText(/temporarily unavailable/i);
+});
+
+test("map location stays a preview until the reporter confirms the pin", async ({ page }) => {
   await page.goto("/?date=2026-09-26");
   await waitForBuildingMap(page);
   await page.getByRole("button", { name: "Report here" }).click();
@@ -471,8 +507,12 @@ test("report composer can use a map pin without granting GPS access", async ({ p
   await expect(report).toHaveClass(/is-expanded/);
   await report.getByRole("button", { name: "Choose on map" }).click();
   await expect(report).toHaveCount(0);
-  await expect(page.getByRole("region", { name: "Campus map" }).getByRole("status").filter({ hasText: "Tap the map where you saw the condition" })).toBeVisible();
-  await clickMapPoint(page, [-89.407, 43.0748]);
+  await expect(page.locator(".map-pick-banner")).toContainText("Tap the map where you saw the condition");
+  await clickMapPoint(page, [-89.405, 43.075]);
+  await expect(page.locator(".map-point-preview-marker")).toBeVisible();
+  await expect(page.locator(".map-pick-banner")).toContainText("Near Van Vleck Hall");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await page.getByRole("button", { name: "Use this point" }).click();
   const pinnedReport = page.getByRole("dialog");
   await expect(pinnedReport.getByText("Map point selected · approximate")).toBeVisible();
   await expect(pinnedReport).toHaveClass(/is-expanded/);
@@ -624,7 +664,7 @@ test("voice dictation is opt-in and sends transcript text only after Send", asyn
   expect(submissions[0]).not.toHaveProperty("audio");
 });
 
-test("unsupported browsers keep the report composer usable with a dictation fallback", async ({ page }) => {
+test("unsupported browsers keep typing available without a dictation notice", async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(window, "SpeechRecognition", { configurable: true, value: undefined });
     Object.defineProperty(window, "webkitSpeechRecognition", { configurable: true, value: undefined });
@@ -633,7 +673,7 @@ test("unsupported browsers keep the report composer usable with a dictation fall
   await page.getByRole("button", { name: "Report here" }).click();
 
   const report = page.getByRole("dialog");
-  await expect(report.getByText(/Voice dictation isn.t available in this browser/)).toBeVisible();
+  await expect(report.getByText(/Voice dictation isn.t available in this browser/)).toHaveCount(0);
   await expect(report.getByRole("button", { name: /dictation/i })).toHaveCount(0);
   await report.getByLabel("What did you see?").fill("Icy near Van Vleck.");
   await expect(report.getByRole("button", { name: "Send report" })).toBeEnabled();

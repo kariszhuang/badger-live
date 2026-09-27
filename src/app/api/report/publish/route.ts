@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { NextRequest } from "next/server";
-import { deriveReportedSeverity, hazardFreshnessMs, reportSubmissionSchema, screenReportText } from "@/lib/report/policy";
+import { deriveReportedSeverity, hazardFreshnessMs, reportSubmissionSchema, screenReportText, validateReportLocation } from "@/lib/report/policy";
 import { readBoundedJson, RequestBodyError } from "@/lib/report/body";
 import { IntakeServiceError, interpretReport, moderateReportInput } from "@/lib/report/intake";
 import { createCapabilityHash, createCapabilityToken, createRequestDigest, createRequestFingerprints, deterministicReportId, FingerprintConfigurationError } from "@/lib/report/visitor-fingerprint";
@@ -126,7 +126,24 @@ export async function POST(request: NextRequest) {
     const selectedPlaceId = input.location?.method === "place" ? input.location.placeId : null;
     const selectedPlace = selectedPlaceId ? places.find((place) => place.id === selectedPlaceId) : undefined;
     const modelPlaces = [...new Map([...namedPlaces, ...(selectedPlace ? [selectedPlace] : [])].map((place) => [place.id, place])).values()].slice(0, 20);
-    const plan = await interpretReport({ mode: "report", text: input.text, photo: input.photo, places: modelPlaces });
+    const intakeNow = Date.now();
+    const selectedLocationContext = input.location ? {
+      method: input.location.method,
+      available: validateReportLocation(input.location, intakeNow) === null
+        && (input.location.method !== "place" || Boolean(selectedPlace)),
+      ...(input.location.method === "gps" ? {
+        accuracyM: Math.round(input.location.accuracyM),
+        ageSeconds: Math.max(0, Math.round((intakeNow - input.location.capturedAt) / 1000)),
+      } : {}),
+      ...(selectedPlace ? { placeId: selectedPlace.sourcePlaceId, placeName: selectedPlace.name } : {}),
+    } as const : undefined;
+    const plan = await interpretReport({
+      mode: "report",
+      text: input.text,
+      photo: input.photo,
+      places: modelPlaces,
+      context: selectedLocationContext ? { selectedLocation: selectedLocationContext } : undefined,
+    });
     if (plan.intent !== "report") {
       if (plan.intent === "out_of_scope") return jsonResponse({ outcome: "not_published", message: "This app publishes only non-identifying physical campus conditions. Immediate emergencies should go to 911 or verified official channels." }, 422);
       return jsonResponse({ outcome: "not_published", message: "Describe an observable physical campus condition to publish a report." }, 422);

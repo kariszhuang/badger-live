@@ -1,44 +1,70 @@
 import { intakePlanSchema, intakePlanJsonSchema } from "./structured-schema";
 import { createReportIntakeSystemPrompt } from "./prompts";
 import type { CampusPlace, IntakePlan } from "./types";
+import { callOpenAI, moderationResultSchema, OpenAIServiceError, parseOpenAIStructuredOutput } from "./openai-client";
+import { rankCampusPlaces } from "@/lib/campus-place-catalog";
 
 // Server-only callers and the local prompt-evaluation CLI share this exact API
 // boundary so an evaluation cannot silently drift from production's prompt/schema.
 export class IntakeServiceError extends Error {
-  constructor(readonly code: "not-configured" | "upstream" | "invalid-response") {
+  constructor(readonly code: "not-configured" | "upstream" | "invalid-response", readonly diagnostic?: string) {
     super(code);
   }
 }
+
+export type IntakePromptContext = {
+  selectedLocation?: {
+    method: "gps" | "pin" | "place";
+    available: boolean;
+    accuracyM?: number;
+    ageSeconds?: number;
+    placeId?: string;
+    placeName?: string;
+  };
+  nearbyHazards?: Array<{
+    kind: string;
+    title: string;
+    lifecycle: string;
+    lastObservedAt: string;
+    approximateDistanceM: number;
+  }>;
+};
 
 export async function interpretReport(input: {
   mode: "report" | "ask";
   text: string;
   places: CampusPlace[];
+  context?: IntakePromptContext;
   photo?: string;
   now?: Date;
 }): Promise<IntakePlan> {
   const apiKey = process.env.OPENAI_API_KEY;
-  const model = process.env.OPENAI_REPORT_MODEL;
-  if (!apiKey || !model) throw new IntakeServiceError("not-configured");
+  const model = process.env.OPENAI_REPORT_MODEL?.trim() || "gpt-6-luna";
+  if (!apiKey) throw new IntakeServiceError("not-configured");
   const now = input.now || new Date();
   const system = createReportIntakeSystemPrompt(now);
-  const candidates = input.places.slice(0, 20).map(({ sourcePlaceId, name, aliases }) => ({
+  const rankedPlaces = rankCampusPlaces(input.places, input.text, 20);
+  const candidates = (rankedPlaces.length ? rankedPlaces : input.places.slice(0, 20)).map(({ sourcePlaceId, name, aliases, coordinates }) => ({
     id: sourcePlaceId,
     name,
     aliases: aliases.slice(0, 8),
+    coordinates,
   }));
   const userContent: Array<Record<string, unknown>> = [{
     type: "input_text",
-    text: JSON.stringify({ mode: input.mode, message: input.text, trusted_campus_places: candidates }),
+    text: JSON.stringify({
+      mode: input.mode,
+      message: input.text,
+      trusted_campus_places: candidates,
+      selected_location: input.context?.selectedLocation || null,
+      nearby_unverified_hazards: input.context?.nearbyHazards?.slice(0, 12) || [],
+    }),
   }];
   if (input.photo) userContent.push({ type: "input_image", image_url: input.photo, detail: "low" });
 
-  let response: Response;
+  let body: unknown;
   try {
-    response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
+    body = await callOpenAI("responses", {
         model,
         input: [
           { role: "system", content: [{ type: "input_text", text: system }] },
@@ -47,27 +73,16 @@ export async function interpretReport(input: {
         text: { format: { type: "json_schema", name: "campus_intake", strict: true, schema: intakePlanJsonSchema } },
         max_output_tokens: 900,
         store: false,
-      }),
-      signal: AbortSignal.timeout(18_000),
-      cache: "no-store",
-    });
-  } catch {
-    throw new IntakeServiceError("upstream");
+      }, 18_000);
+  } catch (error) {
+    throw translateOpenAIError(error);
   }
-  if (!response.ok) {
-    if (response.status === 401 || response.status === 403 || response.status === 404) throw new IntakeServiceError("not-configured");
-    throw new IntakeServiceError("upstream");
-  }
-  const body = await response.json() as { output?: Array<{ content?: Array<{ type?: string; text?: string }> }> };
-  const outputText = body.output?.flatMap((item) => item.content || []).find((part) => part.type === "output_text")?.text;
-  if (!outputText) throw new IntakeServiceError("invalid-response");
-  let decoded: unknown;
-  try { decoded = JSON.parse(outputText); } catch { throw new IntakeServiceError("invalid-response"); }
-  const parsed = intakePlanSchema.safeParse(decoded);
-  if (!parsed.success) throw new IntakeServiceError("invalid-response");
+  let parsed: ReturnType<typeof intakePlanSchema.parse>;
+  try { parsed = parseOpenAIStructuredOutput(body, intakePlanSchema); }
+  catch (error) { throw translateOpenAIError(error); }
   return {
-    intent: parsed.data.intent,
-    issues: parsed.data.issues.map((issue) => ({
+    intent: parsed.intent,
+    issues: parsed.issues.map((issue) => ({
       kind: issue.kind,
       evidence: issue.evidence,
       placeName: issue.place_name,
@@ -76,9 +91,9 @@ export async function interpretReport(input: {
       locationIntent: issue.location_intent,
       relativeToIssueIndex: issue.relative_to_issue_index,
     })),
-    missingCriticalField: parsed.data.missing_critical_field,
-    followup: parsed.data.followup,
-    acknowledgment: parsed.data.acknowledgment,
+    missingCriticalField: parsed.missing_critical_field,
+    followup: parsed.followup,
+    acknowledgment: parsed.acknowledgment,
   };
 }
 
@@ -87,20 +102,18 @@ export async function moderateReportInput(text: string, photo?: string) {
   if (!apiKey) throw new IntakeServiceError("not-configured");
   const content: Array<Record<string, unknown>> = [{ type: "text", text }];
   if (photo) content.push({ type: "image_url", image_url: { url: photo } });
-  let response: Response;
+  let result: ReturnType<typeof moderationResultSchema.parse>;
   try {
-    response = await fetch("https://api.openai.com/v1/moderations", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: "omni-moderation-latest", input: content }),
-      signal: AbortSignal.timeout(12_000),
-      cache: "no-store",
-    });
-  } catch {
-    throw new IntakeServiceError("upstream");
+    const body = await callOpenAI("moderations", { model: "omni-moderation-latest", input: content }, 12_000);
+    result = moderationResultSchema.parse(body);
+  } catch (error) {
+    if (error instanceof OpenAIServiceError) throw translateOpenAIError(error);
+    throw new IntakeServiceError("invalid-response", "moderation-schema");
   }
-  if (!response.ok) throw new IntakeServiceError("upstream");
-  const result = await response.json() as { results?: Array<{ flagged?: boolean }> };
-  if (!Array.isArray(result.results) || typeof result.results[0]?.flagged !== "boolean") throw new IntakeServiceError("invalid-response");
   return { allowed: !result.results[0].flagged };
+}
+
+function translateOpenAIError(error: unknown): IntakeServiceError {
+  if (error instanceof OpenAIServiceError) return new IntakeServiceError(error.code, error.diagnostic);
+  return new IntakeServiceError("upstream");
 }

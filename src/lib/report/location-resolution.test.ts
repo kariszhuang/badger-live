@@ -35,10 +35,19 @@ describe("issue location resolution", () => {
   it("uses a named campus place instead of unrelated GPS or a selected place", () => {
     const result = resolveIssueLocation({
       issue: issue({ placeName: "Van Vleck", locationIntent: "named_place" }), previous: [],
-      selectedLocation: { method: "place", placeId: unionSouth.id },
+      selectedLocation: { method: "place", placeId: unionSouth.id! },
       places: [vanVleck, unionSouth], namedPlaces: [vanVleck], now,
     });
     expect(result.value).toMatchObject({ coordinates: vanVleck.coordinates, placeId: vanVleck.id, locationMethod: "place" });
+  });
+
+  it("resolves a locally indexed named place as an approximate pin when no database ID exists", () => {
+    const localPlace = { ...vanVleck, id: null };
+    const result = resolveIssueLocation({
+      issue: issue({ placeName: "Van Vleck", locationIntent: "named_place" }), previous: [],
+      selectedLocation: undefined, places: [localPlace], namedPlaces: [localPlace], now,
+    });
+    expect(result.value).toEqual({ coordinates: localPlace.coordinates, placeId: null, locationMethod: "pin", accuracy: null });
   });
 
   it("asks for a location instead of falling back to GPS when the issue has no location intent", () => {
@@ -60,7 +69,7 @@ describe("issue location resolution", () => {
   it("inherits an earlier issue's resolved place for an explicit relative location", () => {
     const result = resolveIssueLocation({
       issue: issue({ kind: "broken_light", locationIntent: "relative", relativeToIssueIndex: 0 }),
-      previous: [{ coordinates: vanVleck.coordinates, placeId: vanVleck.id, locationMethod: "place", accuracy: null }],
+      previous: [{ coordinates: vanVleck.coordinates, placeId: vanVleck.id!, locationMethod: "place", accuracy: null }],
       selectedLocation: gps, places: [vanVleck], namedPlaces: [], now,
     });
     expect(result.value).toMatchObject({ coordinates: vanVleck.coordinates, placeId: vanVleck.id, locationMethod: "place" });

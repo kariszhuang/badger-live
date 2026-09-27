@@ -26,7 +26,7 @@ export function SafetyCenter({ open, onOpenChange }: { open: boolean; onOpenChan
       <DialogHeader className="safety-dialog-header">
         <span className="safety-kicker"><ShieldAlert size={14} /> VERIFIED HELP & SOURCES</span>
         <DialogTitle>Get help. Stay informed.</DialogTitle>
-        <DialogDescription>Badger Live is independent and is not an emergency service. Community observations are never official police information.</DialogDescription>
+        <DialogDescription>Official campus alerts, police contacts, and support resources.</DialogDescription>
       </DialogHeader>
       <div className="safety-dialog-scroll">
         <a className="safety-emergency" href="tel:911">

@@ -90,6 +90,34 @@ export function findCampusBuildingAt(collection: CampusBuildings | null, coordin
   });
 }
 
+export function describeCampusMapPoint(collection: CampusBuildings | null, coordinates: [number, number]) {
+  if (!collection?.features.length) return "Selected map point · approximate";
+  const containing = findCampusBuildingAt(collection, coordinates);
+  if (containing) return `Near ${containing.properties.name}`;
+
+  const nearest = collection.features.map((feature) => ({
+    feature,
+    distance: distanceMeters(coordinates, feature.properties.center),
+  })).sort((left, right) => left.distance - right.distance)[0];
+  if (!nearest) return "Selected map point · approximate";
+  if (nearest.distance <= 120) return `Near ${nearest.feature.properties.name}`;
+  const street = streetName(nearest.feature.properties.streetAddress || "");
+  return street ? `Near ${street}` : "Selected map point · approximate";
+}
+
+function streetName(address: string) {
+  const match = address.match(/\b(?:N|S|E|W|North|South|East|West)?\s*[\p{L}.'’-]+(?:\s+[\p{L}.'’-]+){0,3}\s+(?:Street|St\.?|Avenue|Ave\.?|Drive|Dr\.?|Road|Rd\.?|Boulevard|Blvd\.?|Mall|Way|Lane|Ln\.?|Place|Pl\.?|Circle|Cir\.?)\b/iu);
+  return match?.[0]?.replace(/\s+/g, " ").trim() || "";
+}
+
+function distanceMeters(left: [number, number], right: [number, number]) {
+  const radians = (value: number) => value * Math.PI / 180;
+  const deltaLatitude = radians(right[1] - left[1]);
+  const deltaLongitude = radians(right[0] - left[0]);
+  const a = Math.sin(deltaLatitude / 2) ** 2 + Math.cos(radians(left[1])) * Math.cos(radians(right[1])) * Math.sin(deltaLongitude / 2) ** 2;
+  return 6_371_000 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
 function pointInPolygon(rings: number[][][], [longitude, latitude]: [number, number]) {
   const [outer, ...holes] = rings;
   return Boolean(outer && pointInRing(outer, longitude, latitude) && !holes.some((ring) => pointInRing(ring, longitude, latitude)));

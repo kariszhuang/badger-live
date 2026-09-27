@@ -37,7 +37,9 @@ function PlacePicker({ label, selected, onSelect }: { label: string; selected: C
   const [searchingQuery, setSearchingQuery] = useState<string | null>(null);
   const [searchError, setSearchError] = useState<{ query: string; message: string } | null>(null);
   const normalizedQuery = query.trim();
-  const places = searchResult?.query === normalizedQuery && !selected ? searchResult.places : [];
+  const searchPlaces = searchResult?.query === normalizedQuery && !selected ? searchResult.places : [];
+  const places = searchPlaces.filter((place): place is CampusPlace & { id: string } => place.id !== null);
+  const localOnly = searchPlaces.length > 0 && places.length === 0;
   const searching = searchingQuery === normalizedQuery && !selected;
   const error = searchError?.query === normalizedQuery && !selected ? searchError.message : "";
 
@@ -87,7 +89,7 @@ function PlacePicker({ label, selected, onSelect }: { label: string; selected: C
     </div>
     {searching && <span className="walking-route-search-status" role="status">Searching campus places…</span>}
     {error && <span className="walking-route-search-error" role="status">{error}</span>}
-    {!searching && !error && query.trim().length >= 2 && !selected && places.length === 0 && <span className="walking-route-search-status" role="status">No matching campus places.</span>}
+    {!searching && !error && query.trim().length >= 2 && !selected && places.length === 0 && <span className="walking-route-search-status" role="status">{localOnly ? "Route planning needs a live campus place connection." : "No matching campus places."}</span>}
     {places.length > 0 && !selected && <div id={`route-${label.toLowerCase().replaceAll(" ", "-")}-results`} className="walking-route-place-results" role="listbox" aria-label={`${label} matches`}>
       {places.map((place) => <button type="button" role="option" aria-selected="false" key={place.id} onClick={() => { onSelect(place); setQuery(place.name); }}>
         <MapPin size={15} aria-hidden="true" /><span><strong>{place.name}</strong><small>{place.kind === "entrance" ? "Campus entrance" : place.kind === "campus_area" ? "Campus area" : "Campus building"}</small></span>
@@ -122,7 +124,7 @@ export function RoutePlanner({ open, onOpenChange, onRouteChange }: {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const requestId = useRef(0);
-  const canPlan = Boolean(origin && destination && origin.id !== destination.id && !loading);
+  const canPlan = Boolean(origin?.id && destination?.id && origin.id !== destination.id && !loading);
 
   const clearRoute = () => {
     requestId.current += 1;
@@ -133,7 +135,7 @@ export function RoutePlanner({ open, onOpenChange, onRouteChange }: {
   };
 
   const planRoute = async () => {
-    if (!origin || !destination || origin.id === destination.id || loading) return;
+    if (!origin?.id || !destination?.id || origin.id === destination.id || loading) return;
     const id = ++requestId.current;
     setResult(null);
     onRouteChange(null);
