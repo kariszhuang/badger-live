@@ -8,6 +8,7 @@ import type { FeatureCollection } from "geojson";
 import type { EventCategory, VenueGroup } from "@/lib/events";
 import type { CommunitySafetyReport } from "@/lib/safety";
 import { findCampusBuildingAt, type CampusBuilding, type CampusBuildings } from "@/lib/campus-buildings";
+import { CAMPUS_MAP_BOUNDS } from "@/lib/campus-map-bounds";
 import { type CrimeCategory, type CrimeVenueGroup } from "@/lib/crime-model";
 import { hasVisibleMapPoint, type ScreenRect } from "@/lib/map-visibility";
 import { CAMPUS_BUILDING_FILL_PAINT, campusBuildingLayerInsertionPoints } from "@/lib/campus-building-map-style";
@@ -15,7 +16,6 @@ import { CrimeCategoryIcon, SafetyCategoryIcon } from "./category-icons";
 
 type Props = { groups: VenueGroup[]; selectedGroupId: string | null; liveGroupIds: string[]; crimeGroups: CrimeVenueGroup[]; selectedCrimeGroupId: string | null; onSelectCrimeGroup: (id: string) => void; safetyReports: CommunitySafetyReport[]; selectedSafetyReportId: string | null; angled: boolean; onSelect: (id: string) => void; onSelectSafetyReport: (id: string) => void; focus: [number, number] | null; sheetLevel: "closed" | "half" | "full"; userLocation: [number, number] | null; fitSignal: number; autoFitSignal: number; campusSignal: number; mapKey: string; buildings: CampusBuildings | null; selectedBuildingId: string | null; onSelectBuilding: (building: CampusBuilding, coordinates: [number, number]) => void };
 const CENTER: [number, number] = [-89.405, 43.075];
-const CAMPUS_BOUNDS: [[number, number], [number, number]] = [[-89.455, 43.045], [-89.375, 43.095]];
 const BUILDING_SOURCE = "uw-campus-buildings";
 const BUILDING_FILL = "uw-campus-building-fill";
 const BUILDING_SHADOW = "uw-campus-building-shadow";
@@ -67,7 +67,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
     if (!container.current || map.current) return;
     maplibregl.setWorkerUrl("/maplibre/maplibre-gl-worker.mjs");
     const style = mapKey ? `https://api.maptiler.com/maps/streets-v4/style.json?key=${encodeURIComponent(mapKey)}` : "https://tiles.openfreemap.org/styles/liberty";
-    const instance = new maplibregl.Map({ container: container.current, style, center: CENTER, zoom: 14.25, minZoom: 11.5, maxZoom: 17, maxBounds: CAMPUS_BOUNDS, maxPitch: 60, attributionControl: false, pitchWithRotate: false, dragRotate: false });
+    const instance = new maplibregl.Map({ container: container.current, style, center: CENTER, zoom: 14.25, minZoom: 11.5, maxZoom: 17, maxBounds: CAMPUS_MAP_BOUNDS, maxPitch: 60, attributionControl: false, pitchWithRotate: false, dragRotate: false });
     instance.addControl(new maplibregl.AttributionControl({ compact: false }), "bottom-right");
     const attachHandlersWhenReady = () => {
       if (buildingHandlersAttached.current) return;
@@ -132,9 +132,9 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
     map.current = instance;
     return () => {
       markers.current.forEach((marker) => marker.remove()); markers.current = [];
-      crimeIconRoots.current.forEach((root) => root.unmount()); crimeIconRoots.current = [];
+      unmountRoots(crimeIconRoots.current);
       crimeMarkers.current.forEach((marker) => marker.remove()); crimeMarkers.current = [];
-      safetyIconRoots.current.forEach((root) => root.unmount()); safetyIconRoots.current = [];
+      unmountRoots(safetyIconRoots.current);
       safetyMarkers.current.forEach((marker) => marker.remove()); safetyMarkers.current = [];
       userMarker.current?.remove(); userMarker.current = null;
       installBuildingHandlers.current = null; buildingHandlersAttached.current = false;
@@ -199,8 +199,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
 
   useEffect(() => {
     const instance = map.current;
-    crimeIconRoots.current.forEach((root) => root.unmount());
-    crimeIconRoots.current = [];
+    unmountRoots(crimeIconRoots.current);
     crimeMarkers.current.forEach((marker) => marker.remove());
     crimeMarkers.current = [];
     if (!instance) return;
@@ -234,7 +233,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
       return new maplibregl.Marker({ element, anchor: "center" }).setLngLat(group.coordinates).addTo(instance);
     });
     return () => {
-      crimeIconRoots.current.forEach((root) => root.unmount()); crimeIconRoots.current = [];
+      unmountRoots(crimeIconRoots.current);
       crimeMarkers.current.forEach((marker) => marker.remove()); crimeMarkers.current = [];
     };
   }, [crimeGroups]);
@@ -253,8 +252,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
 
   useEffect(() => {
     const instance = map.current;
-    safetyIconRoots.current.forEach((root) => root.unmount());
-    safetyIconRoots.current = [];
+    unmountRoots(safetyIconRoots.current);
     safetyMarkers.current.forEach((marker) => marker.remove());
     safetyMarkers.current = [];
     if (!instance) return;
@@ -283,7 +281,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
         return new maplibregl.Marker({ element, anchor: "center" }).setLngLat(report.coordinates).addTo(instance);
       });
     return () => {
-      safetyIconRoots.current.forEach((root) => root.unmount()); safetyIconRoots.current = [];
+      unmountRoots(safetyIconRoots.current);
       safetyMarkers.current.forEach((marker) => marker.remove()); safetyMarkers.current = [];
     };
   }, [safetyReports]);
@@ -495,6 +493,11 @@ function createEventIcon(category: EventCategory): SVGSVGElement {
     icon.append(path);
   }
   return icon;
+}
+
+function unmountRoots(roots: Root[]) {
+  for (const root of roots) root.unmount();
+  roots.length = 0;
 }
 
 function applyCampusPalette(instance: MapLibreMap, angled: boolean) {
