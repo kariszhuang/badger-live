@@ -22,7 +22,7 @@ function database() {
 function markAvailable() { retryAfter = 0; }
 function markUnavailable(operation: string) {
   retryAfter = Date.now() + 15_000;
-  console.warn(`Local Supabase event cache ${operation} failed; continuing with UW Today.`);
+  console.warn(`Supabase Postgres event cache ${operation} failed; continuing with UW Today.`);
 }
 
 export async function readCachedEventDay(date: string): Promise<CachedEventDay | null> {
@@ -39,7 +39,7 @@ export async function readCachedEventDay(date: string): Promise<CachedEventDay |
     if (!rows[0]) return null;
     const parsedEvents = eventListSchema.safeParse(rows[0].events);
     if (!parsedEvents.success) {
-      console.warn("Local Supabase event cache contained an invalid event record; refreshing from UW Today.");
+      console.warn("Supabase Postgres event cache contained an invalid event record; refreshing from UW Today.");
       return null;
     }
     return {
