@@ -111,15 +111,18 @@ export async function POST(request: NextRequest) {
     }
     if (!plan.issues.length) return jsonResponse({ outcome: "not_published", message: "I couldn’t identify an eligible physical campus condition in that message." }, 422);
     if (plan.missingCriticalField === "time") {
-      const itemIndex = Math.max(0, plan.issues.findIndex((issue) => issue.observedAtBasis !== "explicit_in_text"));
+      const unknownTimeIndex = plan.issues.findIndex((issue) => issue.observedAtBasis === "unknown");
+      const itemIndex = unknownTimeIndex >= 0 ? unknownTimeIndex : Math.max(0, plan.issues.findIndex((issue) => issue.observedAtBasis !== "explicit_in_text"));
       return jsonResponse({ outcome: "needs_followup", itemIndex, question: "When did you see this condition?" }, 200);
     }
 
     const now = Date.now();
-    const explicitPast = explicitPastReference(input.text);
+    const messageHasPastReference = explicitPastReference(input.text);
     const issues: ResolvedIssue[] = [];
     for (const [itemIndex, issue] of plan.issues.entries()) {
-      if ((explicitPast || issue.observedAtBasis === "unknown") && (!issue.observedAt || issue.observedAtBasis !== "explicit_in_text")) {
+      const issueHasPastReference = explicitPastReference(issue.evidence || "")
+        || (plan.issues.length === 1 && messageHasPastReference);
+      if ((issueHasPastReference || issue.observedAtBasis === "unknown") && (!issue.observedAt || issue.observedAtBasis !== "explicit_in_text")) {
         return jsonResponse({ outcome: "needs_followup", itemIndex, question: "When did you see this condition?" }, 200);
       }
       const location = resolveIssueLocation({

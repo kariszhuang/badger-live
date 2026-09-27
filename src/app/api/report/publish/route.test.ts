@@ -160,13 +160,31 @@ describe("POST /api/report/publish", () => {
   });
 
   it("asks when intake marks the observation time as missing", async () => {
-    mocks.plan = makePlan([makeIssue()], "time");
+    mocks.plan = makePlan([
+      makeIssue({ evidence: "The ice is present now." }),
+      makeIssue({ kind: "broken_light", evidence: "The light was out at some point.", observedAtBasis: "unknown", locationIntent: "named_place", placeName: "Van Vleck" }),
+    ], "time");
     const response = await POST(makeRequest({ text: "Icy here" }));
     const body = await response.json();
 
-    expect(body).toMatchObject({ outcome: "needs_followup", itemIndex: 0, question: "When did you see this condition?" });
+    expect(body).toMatchObject({ outcome: "needs_followup", itemIndex: 1, question: "When did you see this condition?" });
     expect(mocks.findDuplicateCandidates).not.toHaveBeenCalled();
     expect(mocks.publishHazardBatch).not.toHaveBeenCalled();
+  });
+
+  it("does not ask for a time on current issues when another issue was observed in the past", async () => {
+    mocks.places = [place];
+    mocks.namedPlaces = [place];
+    mocks.plan = makePlan([
+      makeIssue({ evidence: "The ice is here now." }),
+      makeIssue({ kind: "broken_light", evidence: "The light was out yesterday.", placeName: "Van Vleck", observedAt: new Date(Date.now() - 24 * 60 * 60_000).toISOString(), observedAtBasis: "explicit_in_text", locationIntent: "named_place" }),
+    ]);
+    const response = await POST(makeRequest({ text: "The ice is here now, but the light at Van Vleck was out yesterday." }));
+    const body = await response.json();
+
+    expect(body).toMatchObject({ outcome: "posted", postedCount: 2 });
+    expect(mocks.submittedItems).toHaveLength(2);
+    expect(mocks.publishHazardBatch).toHaveBeenCalledTimes(1);
   });
 
   it("asks for an actionable description when intake marks the issue as missing", async () => {
