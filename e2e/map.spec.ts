@@ -385,9 +385,10 @@ test("location explains that a secure connection is required on LAN devices", as
 
 test("map controls stay minimal, 2D, and at the bottom", async ({ page }) => {
   await page.goto("/?date=2026-09-26");
-  await expect(page.locator(".map-tools button")).toHaveCount(3);
+  await expect(page.locator(".map-tools button")).toHaveCount(4);
   await expect(page.getByRole("button", { name: "Locate me" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Back to campus" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Check walking route" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Safety alerts and resources" })).toBeVisible();
   await expect(page.getByRole("button", { name: /fit|3d view|2d view/i })).toHaveCount(0);
 

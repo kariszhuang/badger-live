@@ -3,7 +3,7 @@ import { z } from "zod";
 import { isWithinCampusMapBounds } from "@/lib/campus-map-bounds";
 import { readBoundedJson, RequestBodyError } from "@/lib/report/body";
 import { checkRequestRateLimits, jsonResponse, requestHasAllowedOrigin } from "@/lib/report/route-helpers";
-import { inspectRouteAgainstHazards } from "@/lib/report/route-inspection";
+import { inspectRouteAgainstHazards, routeBounds, routeLengthMeters } from "@/lib/report/route-inspection";
 import { FingerprintConfigurationError } from "@/lib/report/visitor-fingerprint";
 import { listHazardsForRoute, ReportStoreError } from "@/lib/report/store";
 
@@ -22,15 +22,9 @@ export async function POST(request: NextRequest) {
     return jsonResponse({ error: "Choose a candidate route inside the UW–Madison campus map." }, 400);
   }
   const route = parsed.data.route;
-  const distance = route.slice(1).reduce((total, point, index) => total + Math.hypot((point[0] - route[index][0]) * 82_000, (point[1] - route[index][1]) * 111_000), 0);
-  if (distance > 10_000) return jsonResponse({ error: "That candidate route is too long to inspect." }, 400);
-  const bounds: [number, number, number, number] = [
-    Math.max(-89.455, Math.min(...route.map(([longitude]) => longitude)) - 0.002),
-    Math.max(43.045, Math.min(...route.map(([, latitude]) => latitude)) - 0.002),
-    Math.min(-89.375, Math.max(...route.map(([longitude]) => longitude)) + 0.002),
-    Math.min(43.095, Math.max(...route.map(([, latitude]) => latitude)) + 0.002),
-  ];
-  if (bounds[0] >= bounds[2] || bounds[1] >= bounds[3]) return jsonResponse({ warnings: [], disclaimer: "This checks only current unverified observations; it cannot establish safety or accessibility." }, 200);
+  if (routeLengthMeters(route) > 10_000) return jsonResponse({ error: "That candidate route is too long to inspect." }, 400);
+  const bounds = routeBounds(route);
+  if (!bounds) return jsonResponse({ warnings: [], disclaimer: "This checks only current unverified observations; it cannot establish safety or accessibility." }, 200);
   try {
     const rate = await checkRequestRateLimits(request, parsed.data.visitorId, {
       network: { action: "route_inspect_network", limit: 30, windowSeconds: 3600 },

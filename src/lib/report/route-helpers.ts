@@ -12,7 +12,12 @@ export function jsonResponse(body: unknown, status = 200, headers: Record<string
 export function requestHasAllowedOrigin(request: NextRequest) {
   const origin = request.headers.get("origin");
   if (!origin) return true;
-  try { return new URL(origin).origin === request.nextUrl.origin; } catch { return false; }
+  try {
+    const expected = new URL(request.url);
+    const host = request.headers.get("host");
+    if (host) expected.host = host;
+    return new URL(origin).origin === expected.origin;
+  } catch { return false; }
 }
 
 export function reportWritesEnabled() {

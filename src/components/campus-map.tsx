@@ -7,13 +7,14 @@ import type { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
 import type { FeatureCollection } from "geojson";
 import type { EventCategory, VenueGroup } from "@/lib/events";
 import type { HazardReport } from "@/lib/report/types";
+import type { PlannedWalkingRoute } from "./routes/route-planner";
 import { findCampusBuildingAt, type CampusBuilding, type CampusBuildings } from "@/lib/campus-buildings";
 import { CAMPUS_MAP_BOUNDS } from "@/lib/campus-map-bounds";
 import { type CrimeCategory, type CrimeVenueGroup } from "@/lib/crime-model";
 import { CAMPUS_BUILDING_FILL_PAINT, campusBuildingLayerInsertionPoints } from "@/lib/campus-building-map-style";
 import { CrimeCategoryIcon } from "./category-icons";
 
-type Props = { groups: VenueGroup[]; selectedGroupId: string | null; liveGroupIds: string[]; crimeGroups: CrimeVenueGroup[]; selectedCrimeGroupId: string | null; onSelectCrimeGroup: (id: string) => void; hazards: HazardReport[]; hazardsVisible: boolean; selectedHazardId: string | null; onSelectHazard: (id: string) => void; pickingLocation: boolean; onMapPoint: (coordinates: [number, number]) => void; onSelect: (id: string) => void; focus: [number, number] | null; sheetLevel: "closed" | "half" | "full"; userLocation: [number, number] | null; campusSignal: number; mapKey: string; buildings: CampusBuildings | null; selectedBuildingId: string | null; onSelectBuilding: (building: CampusBuilding, coordinates: [number, number]) => void };
+type Props = { groups: VenueGroup[]; selectedGroupId: string | null; liveGroupIds: string[]; crimeGroups: CrimeVenueGroup[]; selectedCrimeGroupId: string | null; onSelectCrimeGroup: (id: string) => void; hazards: HazardReport[]; hazardsVisible: boolean; selectedHazardId: string | null; onSelectHazard: (id: string) => void; candidateRoute: PlannedWalkingRoute | null; pickingLocation: boolean; onMapPoint: (coordinates: [number, number]) => void; onSelect: (id: string) => void; focus: [number, number] | null; sheetLevel: "closed" | "half" | "full"; userLocation: [number, number] | null; campusSignal: number; mapKey: string; buildings: CampusBuildings | null; selectedBuildingId: string | null; onSelectBuilding: (building: CampusBuilding, coordinates: [number, number]) => void };
 const CENTER: [number, number] = [-89.405, 43.075];
 const BUILDING_SOURCE = "uw-campus-buildings";
 const BUILDING_FILL = "uw-campus-building-fill";
@@ -25,6 +26,9 @@ const BUILDING_LABELS = "uw-campus-building-labels";
 const HAZARD_SOURCE = "community-hazard-reports";
 const HAZARD_CIRCLES = "community-hazard-circles";
 const HAZARD_LABELS = "community-hazard-labels";
+const ROUTE_SOURCE = "candidate-walking-route";
+const ROUTE_CASING = "candidate-walking-route-casing";
+const ROUTE_LINE = "candidate-walking-route-line";
 const ICON_PATHS: Record<EventCategory, string[]> = {
   music: ["M9 18V5l12-2v13", "M9 9l12-2", "M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z", "M18 19a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"],
   food: ["M3 2v7a4 4 0 0 0 4 4", "M7 2v20", "M11 2v7a4 4 0 0 1-4 4", "M16 2v20", "M20 2v7a4 4 0 0 1-4 4"],
@@ -37,7 +41,7 @@ const ICON_PATHS: Record<EventCategory, string[]> = {
 };
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, selectedCrimeGroupId, onSelectCrimeGroup, hazards, hazardsVisible, selectedHazardId, onSelectHazard, pickingLocation, onMapPoint, onSelect, focus, sheetLevel, userLocation, campusSignal, mapKey, buildings, selectedBuildingId, onSelectBuilding }: Props) {
+export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, selectedCrimeGroupId, onSelectCrimeGroup, hazards, hazardsVisible, selectedHazardId, onSelectHazard, candidateRoute, pickingLocation, onMapPoint, onSelect, focus, sheetLevel, userLocation, campusSignal, mapKey, buildings, selectedBuildingId, onSelectBuilding }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const markers = useRef<Marker[]>([]);
@@ -55,6 +59,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
   const onSelectBuildingRef = useRef(onSelectBuilding);
   const buildingsRef = useRef(buildings);
   const selectedBuildingIdRef = useRef(selectedBuildingId);
+  const candidateRouteRef = useRef(candidateRoute);
   const previousSelectedBuildingId = useRef<string | null>(null);
   const installBuildingHandlers = useRef<(() => void) | null>(null);
   const buildingHandlersAttached = useRef(false);
@@ -68,6 +73,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
   useEffect(() => { onSelectBuildingRef.current = onSelectBuilding; }, [onSelectBuilding]);
   useEffect(() => { buildingsRef.current = buildings; }, [buildings]);
   useEffect(() => { selectedBuildingIdRef.current = selectedBuildingId; }, [selectedBuildingId]);
+  useEffect(() => { candidateRouteRef.current = candidateRoute; }, [candidateRoute]);
 
   useEffect(() => {
     if (!container.current || map.current) return;
@@ -138,6 +144,8 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
       else instance.once("idle", syncCampusBuildings);
       if (instance.isStyleLoaded()) addHazardLayer(instance, hazardsRef.current, hazardsVisibleRef.current);
       else instance.once("idle", () => addHazardLayer(instance, hazardsRef.current, hazardsVisibleRef.current));
+      if (instance.isStyleLoaded()) syncCandidateRouteLayer(instance, candidateRouteRef.current);
+      else instance.once("idle", () => syncCandidateRouteLayer(instance, candidateRouteRef.current));
     });
     instance.on("error", () => {
       if (mapKey && !fallbackUsed.current) {
@@ -159,6 +167,22 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
     };
     // One map instance survives filtering and date changes.
   }, [mapKey]);
+
+  useEffect(() => {
+    const instance = map.current;
+    if (!instance) return;
+    const sync = () => {
+      if (!instance.isStyleLoaded()) return;
+      syncCandidateRouteLayer(instance, candidateRoute);
+      if (!candidateRoute) return;
+      const bounds = new maplibregl.LngLatBounds();
+      candidateRoute.coordinates.forEach((coordinate) => bounds.extend(coordinate));
+      instance.fitBounds(bounds, { padding: window.innerWidth < 768 ? { top: 180, right: 72, bottom: 230, left: 42 } : { top: 90, right: 90, bottom: 90, left: 430 }, maxZoom: 16, duration: 500 });
+    };
+    if (instance.isStyleLoaded()) sync();
+    else instance.once("idle", sync);
+    return () => { instance.off("idle", sync); };
+  }, [candidateRoute]);
 
   useEffect(() => {
     const instance = map.current;
@@ -458,6 +482,41 @@ function addHazardLayer(instance: MapLibreMap, hazards: HazardReport[], visible:
   });
   instance.setLayoutProperty(HAZARD_CIRCLES, "visibility", visible ? "visible" : "none");
   instance.setLayoutProperty(HAZARD_LABELS, "visibility", visible ? "visible" : "none");
+}
+
+function syncCandidateRouteLayer(instance: MapLibreMap, route: PlannedWalkingRoute | null) {
+  if (!instance.isStyleLoaded()) return;
+  const source = instance.getSource(ROUTE_SOURCE) as GeoJSONSource | undefined;
+  if (!route || route.coordinates.length < 2) {
+    source?.setData({ type: "FeatureCollection", features: [] });
+    return;
+  }
+  const collection: FeatureCollection = {
+    type: "FeatureCollection",
+    features: [{
+      type: "Feature",
+      properties: {},
+      geometry: { type: "LineString", coordinates: route.coordinates },
+    }],
+  };
+  if (source) source.setData(collection);
+  else instance.addSource(ROUTE_SOURCE, { type: "geojson", data: collection });
+
+  const beforeId = instance.getLayer(HAZARD_CIRCLES) ? HAZARD_CIRCLES : undefined;
+  if (!instance.getLayer(ROUTE_CASING)) instance.addLayer({
+    id: ROUTE_CASING,
+    type: "line",
+    source: ROUTE_SOURCE,
+    layout: { "line-cap": "round", "line-join": "round" },
+    paint: { "line-color": "#fffdf7", "line-width": 9, "line-opacity": 0.94 },
+  }, beforeId);
+  if (!instance.getLayer(ROUTE_LINE)) instance.addLayer({
+    id: ROUTE_LINE,
+    type: "line",
+    source: ROUTE_SOURCE,
+    layout: { "line-cap": "round", "line-join": "round" },
+    paint: { "line-color": "#2c748d", "line-width": 5, "line-opacity": 0.96 },
+  }, beforeId);
 }
 
 function createEventIcon(category: EventCategory): SVGSVGElement {

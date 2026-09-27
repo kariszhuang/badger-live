@@ -23,6 +23,7 @@ import { CrimeReportCard } from "./crime-report-card";
 import { ReportSheet } from "./report/report-sheet";
 import { ReportDetailsSheet } from "./report/report-details-sheet";
 import { AssistantSheet } from "./assistant/assistant-sheet";
+import { RoutePlanner, type PlannedWalkingRoute } from "./routes/route-planner";
 
 const CampusMap = dynamic(() => import("./campus-map").then((module) => module.CampusMap), { ssr: false, loading: () => <div className="map-loading"><span className="loading-orbit" /> Mapping campus…</div> });
 type DayResponse = EventsResult & { date: string };
@@ -74,6 +75,8 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
   const [selectedHazardId, setSelectedHazardId] = useState<string | null>(null);
   const [selectedHazardSnapshot, setSelectedHazardSnapshot] = useState<HazardReport | null>(null);
   const [reportDetailsOpen, setReportDetailsOpen] = useState(false);
+  const [routePlannerOpen, setRoutePlannerOpen] = useState(false);
+  const [candidateRoute, setCandidateRoute] = useState<PlannedWalkingRoute | null>(null);
   const { reports: communityReports, unavailable: communityReportsUnavailable, refresh: refreshCommunityReports } = useHazardUpdates();
   const listRef = useRef<HTMLDivElement>(null);
   const dragStart = useRef<number | null>(null);
@@ -425,10 +428,11 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
 
   return <main className={`experience ${sheet !== "closed" ? "has-open-sheet" : ""}`}>
     <section className={`map-panel ${pickingLocation ? "is-picking-location" : ""}`} aria-label="Campus map">
-      <CampusMap groups={mode === "events" ? groups : []} selectedGroupId={mode === "events" ? activeGroupId : null} liveGroupIds={mode === "events" ? liveGroupIds : []} crimeGroups={mode === "crime" ? crimeGroups : []} selectedCrimeGroupId={mode === "crime" ? selectedCrimeGroupId : null} onSelectCrimeGroup={selectCrimeGroup} hazards={communityReports} hazardsVisible={communityLayerVisible} selectedHazardId={selectedHazardId} onSelectHazard={handleSelectHazard} pickingLocation={pickingLocation} onMapPoint={selectMapPoint} onSelect={selectGroup} focus={focus} sheetLevel={sheet} userLocation={userLocation} campusSignal={campusSignal} mapKey={mapKey} buildings={buildings} selectedBuildingId={selectedBuilding?.mapObjectId || null} onSelectBuilding={selectBuilding} />
+      <CampusMap groups={mode === "events" ? groups : []} selectedGroupId={mode === "events" ? activeGroupId : null} liveGroupIds={mode === "events" ? liveGroupIds : []} crimeGroups={mode === "crime" ? crimeGroups : []} selectedCrimeGroupId={mode === "crime" ? selectedCrimeGroupId : null} onSelectCrimeGroup={selectCrimeGroup} hazards={communityReports} hazardsVisible={communityLayerVisible} selectedHazardId={selectedHazardId} onSelectHazard={handleSelectHazard} candidateRoute={candidateRoute} pickingLocation={pickingLocation} onMapPoint={selectMapPoint} onSelect={selectGroup} focus={focus} sheetLevel={sheet} userLocation={userLocation} campusSignal={campusSignal} mapKey={mapKey} buildings={buildings} selectedBuildingId={selectedBuilding?.mapObjectId || null} onSelectBuilding={selectBuilding} />
       <div className="map-tools">
         <button aria-label="Locate me" title={locating ? "Requesting your location…" : "Request location (permission is requested on tap)"} aria-busy={locating} disabled={locating} className={locating ? "is-locating" : undefined} onClick={locate}><LocateFixed size={19} /></button>
         <button aria-label="Back to campus" title="Back to campus" onClick={() => setCampusSignal((n) => n + 1)}><Compass size={19} /></button>
+        <button aria-label="Check walking route" title="Check walking route between campus places" onClick={() => setRoutePlannerOpen(true)}><Navigation size={19} /></button>
         <button aria-label="Safety alerts and resources" title="Safety alerts and resources" onClick={() => openSafetyCenter()}><ShieldAlert size={19} /></button>
       </div>
       <div className="map-actions" aria-label="Campus tools">
@@ -511,8 +515,9 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
     </Dialog>
 
     <SafetyCenter open={safetyOpen} onOpenChange={setSafetyOpen} />
-    <ReportSheet key={reportSessionId} open={reportOpen} onOpenChange={setReportOpen} initialText={reportInitialText} pinCoordinates={reportPin} onChooseMapPoint={chooseMapPointMode} onClearPin={clearReportPin} onReportsPosted={onReportsChanged} onViewReport={viewReportOnMap} />
-    <AssistantSheet key={assistantSessionId} open={assistantOpen} onOpenChange={setAssistantOpen} date={date} initialQuery={assistantInitialQuery} onPostAsReport={postAssistantSuggestion} />
+    <RoutePlanner open={routePlannerOpen} onOpenChange={setRoutePlannerOpen} onRouteChange={setCandidateRoute} />
+    <ReportSheet key={`report-${reportSessionId}`} open={reportOpen} onOpenChange={setReportOpen} initialText={reportInitialText} pinCoordinates={reportPin} onChooseMapPoint={chooseMapPointMode} onClearPin={clearReportPin} onReportsPosted={onReportsChanged} onViewReport={viewReportOnMap} />
+    <AssistantSheet key={`assistant-${assistantSessionId}`} open={assistantOpen} onOpenChange={setAssistantOpen} date={date} initialQuery={assistantInitialQuery} onPostAsReport={postAssistantSuggestion} />
     <ReportDetailsSheet report={selectedHazard} open={reportDetailsOpen} onOpenChange={(open) => { setReportDetailsOpen(open); if (!open) setSelectedHazardId(null); }} onChanged={() => void refreshCommunityReports()} />
 
     <section className={`mobile-sheet sheet-${sheet}`} aria-label={mode === "crime" ? "UWPD blotter list" : "Event list"} aria-hidden={sheet === "closed"} inert={sheet === "closed"} onKeyDown={(event) => { if (event.key === "Escape") { setSheet("closed"); setSelectedId(null); setSelectedGroupId(null); setSelectedCrimeGroupId(null); setSelectedCrimeIncidentId(null); } }}>

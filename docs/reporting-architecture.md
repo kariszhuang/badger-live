@@ -68,8 +68,15 @@ Limits are stored atomically in Postgres. Missing database/HMAC keys, unavailabl
 | `POST /api/report/:id/undo` | Recent undo requiring the original one-time token. |
 | `POST /api/report/:id/flag` | Rate-limited inaccurate/outdated/misplaced signal. |
 | `POST /api/routes/inspect` | Candidate route proximity check; a clear response never guarantees safety/accessibility. |
+| `POST /api/routes/plan` | Rate-limited walking route between two trusted campus places; calls OpenRouteService from the server and checks the candidate path against current unverified reports. Browser GPS is never submitted. |
 | `GET /api/cron/expire` | Bearer-protected lifecycle and retention cleanup. |
 | `GET /api/cron/import-events` | Bearer-protected official event cache refresh and import-run record. |
+
+## Candidate walking routes
+
+The map's **Check walking route** tool requires two different results from the trusted campus-place search. The browser sends their place IDs to `/api/routes/plan`; the server resolves those IDs to catalog coordinates and calls OpenRouteService's walking profile with its optional server-only API key. A successful candidate is validated for bounded GeoJSON geometry, campus bounds, and a 10 km maximum before the server checks only nearby active community reports. The map draws the returned path and lists any nearby observations with their unverified status.
+
+The client never sends its GPS location to the routing provider. If the optional key is absent or the provider fails, the planner gives an actionable error and does not invent a route. A route with no reported obstruction is not evidence of safety, accessibility, open entrances, or absence of construction; the UI states those limits and links to OpenRouteService and OpenStreetMap attribution. The provider's live response remains unverified because no project API key is configured.
 
 ## AI prompt work and limits
 

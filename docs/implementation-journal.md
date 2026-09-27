@@ -26,8 +26,9 @@ This is the working record for implementing [the master plan](./Badger_Live_Comp
 | `src/app/api/report/` | One report submission transaction, observational rechecks, limited undo, and inaccurate/outdated flags. |
 | `src/app/api/map/` and `src/app/api/places/` | Bounded public map queries and canonical campus-place search. |
 | `src/app/api/assistant/` | Read-only source-grounded campus answers; no implicit publish capability. |
+| `src/app/api/routes/plan/` | Trusted-place walking directions proxy with rate limits and nearby-report inspection. |
 | `supabase/migrations/` | PostGIS-safe public projections, private operational tables, RLS, atomic RPCs, and minimal Broadcast invalidation payloads. |
-| `src/components/` | Map layer controls, report composer and receipt, location picker, assistant sheet, hazard markers, and source-linked event cards. |
+| `src/components/` | Map layer controls, report composer and receipt, location picker, assistant and walking-route sheets, hazard markers, and source-linked event cards. |
 
 All write routes fail closed when required database, HMAC, model/moderation, or write-enable settings are absent. The browser receives only public Supabase configuration. Raw report text and original images are not persisted or included in public data.
 
@@ -40,7 +41,7 @@ All write routes fail closed when required database, HMAC, model/moderation, or 
 | Map/report/assistant UI | Implemented; reviewed in built-in browser | Location-first composer with GPS/pin/place options, privacy-safe image preparation, safe map layer, visible uncertainty/lifecycle, duplicate choices, receipt, and read-only Ask Badger sheet. Tested as a narrow mobile viewport with real local place search. |
 | Read-only assistant and event tools | Implemented; live model unverified | Answers use date-filtered UW Today data, safe observations, campus places, optional historical blotter sources, strict structured output, and source-ID allowlisting. Offline prompt-contract tests pass. |
 | Public Broadcast and resilience | Implemented and locally verified | Broadcast contains only ID/version/kind; clients debounce then refresh canonical map data and reconcile on focus, visibility, subscription, and timed polling. The local trigger and invalidation parser were checked. |
-| Import/cron and route inspection | Implemented and locally verified | Event import and expiry have bearer-protected endpoints and production schedules; route inspection warns only about nearby unverified points. Local Supabase has the four migrations applied, including the ten-minute expiry schedule; atomic retry, public-role denial, and trigger behavior were manually checked. |
+| Import/cron and route planning | Implemented; provider setup required | Event import and expiry have bearer-protected endpoints and production schedules. `/api/routes/inspect` handles bounded supplied geometry; the planner resolves two trusted place IDs, requests walking geometry server-side when `OPENROUTESERVICE_API_KEY` is set, and inspects nearby active community reports. The client never submits GPS to the provider. Local browser review verified place search and the no-key message; mocked API/browser tests cover warning presentation. A live OpenRouteService response remains unverified. |
 | Documentation and demo readiness | Complete for local implementation | README, deployment setup, reporting architecture, prompt contract tests, and this journal document the architecture, local workflow, operational boundaries, and hosted setup still required. |
 
 ## Acceptance audit follow-up
@@ -50,17 +51,19 @@ All write routes fail closed when required database, HMAC, model/moderation, or 
 - The safety sheet now has source-linked UWPD and University Housing lost-property guidance. The deployment guide has an exact-ID/exact-title procedure for deleting demo rows safely.
 - Route-level tests exercise one-request multi-issue publication, relative issue location inheritance, location follow-up instead of GPS fallback, pin/place precedence, person-allegation rejection before model calls, and duplicate choice without an early write. Pure location tests cover six precedence and fallback cases.
 - The single-send product flow deliberately runs semantic intake inside `/api/report/publish` so one explicit Send can screen, interpret, deduplicate, and commit atomically. `/api/report/interpret` remains a read-only Ask-mode extraction helper; it is not an extra report-composer round trip.
+- Route geometry is accepted only when it has 2–5,000 coordinates, stays inside campus map bounds, and is at most 10 km. `/api/routes/plan` resolves catalog IDs server-side and returns a clear missing-provider error instead of a fabricated path. The map creates its route source and line layers only after receiving a usable candidate, which keeps map startup and campus-building setup independent.
 
 ## Verification ledger
 
 Verification on the current branch:
 
-- `bun run lint`, `bun run typecheck`, `bun run test` (17 files / 83 tests), and `bun run build` all passed after the current acceptance-audit changes.
+- `bun run lint`, `bun run typecheck`, `bun run test` (20 files / 93 tests), and `bun run build` all passed after the route-planning changes.
 - All four migrations applied successfully to the disposable local Supabase instance. The expiry job is registered as `badger-live-expire-hazards` on `*/10 * * * *`. Manual database checks covered atomic two-item publish, idempotent retry, denied anonymous writes/private access, and minimal trigger payload.
 - Prompt tests check guardrail text and source contracts only; no OpenAI API key/model was present, so no live GPT-6 Luna trial has run.
 - `bun run db:status`: local Supabase is running; its CLI reports no linked hosted project.
-- Built-in browser review at a 481×827 viewport covered the map, report and assistant sheets, local trusted-place search, and the map-pin fallback when location was unavailable. A clipped mobile sheet was found and fixed; the new sheet geometry assertions pass.
-- Final full Playwright run: `bun run test:e2e --workers=1` passed 53 tests with 3 expected desktop skips for mobile-only sheet checks. Running this MapLibre-heavy suite with more workers can starve browser evaluation and cause timeout noise; use one worker when you need a stable acceptance run.
+- Built-in browser review at 390×844 covered the live campus map and building footprints, route place search and the safe no-provider-key message, plus the Ask Badger sheet and quick-question affordance. No browser GPS permission was granted. MapTiler's style emitted a missing `transportation:road_` image warning; the base map, event markers, and building footprints rendered.
+- Final full Playwright run: `bun run test:e2e --workers=1` passed 55 tests with 3 expected desktop skips for mobile-only sheet checks. The run also verified that successful mocked route planning posts only trusted place IDs, renders the nearby unverified warning and clears the candidate route. Running this MapLibre-heavy suite with more workers can starve browser evaluation and cause timeout noise; use one worker when you need a stable acceptance run.
+- The first full run after adding route layers exposed that empty route layers created during map startup prevented campus-building readiness. Creating those layers only when a candidate route exists fixed the issue; focused desktop/mobile checks and the subsequent complete suite passed.
 - The local database path and browser code are verified, but a two-device staging session, a live OpenAI request, actual phone location behavior, and hosted deployment remain unverified and must be checked with project credentials before enabling writes.
 
 Before each implementation commit, rerun the repository-required lint, typecheck, unit tests, and build checks. Do not include unrelated pre-existing user edits in those commits.

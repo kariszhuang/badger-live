@@ -34,6 +34,7 @@ Use separate projects and credentials for production and preview/staging. Requir
 | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Browser | Public Broadcast subscription only; never grants write authority. |
 | `DATABASE_URL` | Server secret | Direct Postgres/Session Pooler connection for the app's parameterized SQL and transactions. |
 | `OPENAI_API_KEY` | Server secret | Report moderation, structured intake, and Ask Badger. |
+| `OPENROUTESERVICE_API_KEY` | Server secret, optional | Pedestrian directions for the route planner. It is never exposed to the browser. Without it, route planning explains that directions are not configured; the geometry-inspection API remains usable for supplied paths. |
 | `OPENAI_REPORT_MODEL` | Server configuration | Defaults to documented `gpt-6-luna`; verify project access before use. |
 | `OPENAI_ASSISTANT_MODEL` | Server configuration | Optional separate read-only assistant model. |
 | `REPORT_FINGERPRINT_HMAC_KEY` | Server secret | HMAC key for pseudonymous visitor/network rate-limit buckets and request digests. |
@@ -60,6 +61,8 @@ The manual GitHub Actions workflow in `.github/workflows/supabase-migrations.yml
 7. Enable `REPORT_WRITES_ENABLED=true` only after a successful manual smoke test and the public-role checks below.
 
 The production project is not linked to the local Supabase CLI, and no hosted migration has been applied or verified during this task. Do not assume current remote state from old deployment notes.
+
+The route planner sends only the two selected trusted campus-place coordinates to OpenRouteService for walking directions; it never sends browser GPS. The returned candidate path is checked against current unverified community observations. A clear route result does not establish safety, accessibility, open entrances, or absence of hazards. The directions provider requires an optional server-side `OPENROUTESERVICE_API_KEY`; the client never receives it.
 
 ## Scheduled jobs
 

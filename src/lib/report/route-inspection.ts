@@ -1,4 +1,5 @@
 import type { HazardReport } from "./types";
+import { CAMPUS_MAP_BOUNDS } from "@/lib/campus-map-bounds";
 
 type Coordinate = [longitude: number, latitude: number];
 
@@ -21,6 +22,26 @@ export function distanceToRouteMeters(point: Coordinate, route: Coordinate[]): n
     nearest = Math.min(nearest, Math.hypot(target[0] - (start[0] + projection * dx), target[1] - (start[1] + projection * dy)));
   }
   return nearest;
+}
+
+export function routeLengthMeters(route: Coordinate[]): number {
+  return route.slice(1).reduce((total, point, index) => {
+    const previous = route[index];
+    const latitudeOrigin = (previous[1] + point[1]) / 2;
+    const start = project(previous, latitudeOrigin);
+    const end = project(point, latitudeOrigin);
+    return total + Math.hypot(end[0] - start[0], end[1] - start[1]);
+  }, 0);
+}
+
+export function routeBounds(route: Coordinate[]): [west: number, south: number, east: number, north: number] | null {
+  if (!route.length) return null;
+  const [[campusWest, campusSouth], [campusEast, campusNorth]] = CAMPUS_MAP_BOUNDS;
+  const west = Math.max(campusWest, Math.min(...route.map(([longitude]) => longitude)) - 0.002);
+  const south = Math.max(campusSouth, Math.min(...route.map(([, latitude]) => latitude)) - 0.002);
+  const east = Math.min(campusEast, Math.max(...route.map(([longitude]) => longitude)) + 0.002);
+  const north = Math.min(campusNorth, Math.max(...route.map(([, latitude]) => latitude)) + 0.002);
+  return west < east && south < north ? [west, south, east, north] : null;
 }
 
 export function inspectRouteAgainstHazards(route: Coordinate[], reports: HazardReport[], thresholdMeters = 20) {
