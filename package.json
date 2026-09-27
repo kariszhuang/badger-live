@@ -14,6 +14,7 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "eval:report-prompt": "bun run scripts/evaluate-report-prompts.ts",
+    "audit:client-bundles": "bun run scripts/audit-client-bundles.ts",
     "db:start": "supabase start",
     "db:stop": "supabase stop",
     "db:reset": "supabase db reset",

@@ -75,6 +75,7 @@ The import refreshes the current America/Chicago date and the following seven ev
 ## Security and operations checks
 
 - Public browser code has only `NEXT_PUBLIC_*` values. The browser never receives a Postgres connection or a capability hash.
+- After a production build, `bun run audit:client-bundles` loads environment files with Next.js precedence, then scans browser-facing static assets and prerendered responses for raw configured server-only values. It prints variable names only if it finds a match. Run it in the same build environment to inspect that environment's configured values; it cannot verify secrets that were not present there or detect encoded/transformed values, so it complements source and deployment review.
 - RLS and grants allow public reads of sanitized tables only. Private operational data lives in the non-exposed `internal` schema. All inserts, updates, and deletion operations use server-only SQL functions.
 - `REPORT_WRITES_ENABLED=false` turns off publish, recheck, undo, and flag routes. Set it back to false immediately if abuse or operational failures appear.
 - Public reports contain a fixed category title, approximate point/place, user-reported severity, timestamps, anonymous count, and lifecycle. They do not contain original text, original images, contact details, or a person identity.

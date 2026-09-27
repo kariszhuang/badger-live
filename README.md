@@ -47,6 +47,6 @@ Use the [master-plan acceptance matrix](docs/acceptance-matrix.md) to distinguis
 
 ## Verification
 
-Run `bun run lint`, `bun run typecheck`, `bun run test`, and `bun run build`. Playwright browser checks are available with `bun run test:e2e`. E2E needs live map tiles and the official calendar unless a test provides fixtures. The MapLibre worker is copied from its installed package before development and production builds; generated files are not committed.
+Run `bun run lint`, `bun run typecheck`, `bun run test`, and `bun run build`. After a build, `bun run audit:client-bundles` uses Next.js environment-file precedence to scan browser-facing assets for raw configured server-only values without printing the values. Playwright browser checks are available with `bun run test:e2e`. E2E needs live map tiles and the official calendar unless a test provides fixtures. The MapLibre worker is copied from its installed package before development and production builds; generated files are not committed.
 
 Implementation details, endpoint behavior, privacy limits, and manual takedown steps are in [the reporting architecture guide](docs/reporting-architecture.md). External environment setup and migration guidance are in [deployment and Supabase setup](docs/deployment.md). The ongoing build record is [the implementation journal](docs/implementation-journal.md); the supplied master plan remains the product specification.
