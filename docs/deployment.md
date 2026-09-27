@@ -50,4 +50,4 @@ Do not add a service-role key to browser variables, enable public reads of pendi
 
 ## Local database and CI
 
-`bun run db:start` and `bun run db:reset` use the local Supabase stack. GitHub CI starts an ephemeral local stack and applies the repository migrations before tests. The local stack is useful for migration development; it is not the hosted database. To point local development back to the local stack, use `http://127.0.0.1:54321` and the local CLI's publishable key, plus the local Postgres URL, in a local-only environment file.
+`bun run db:start` and `bun run db:reset` use the local Supabase stack. GitHub CI starts an ephemeral local stack and applies the repository migrations before lint, typecheck, unit tests, and build. Browser E2E tests remain available through `bun run test:e2e`; they are not part of the deployment check yet because they depend on MapTiler tiles and live calendar data. The local stack is useful for migration development; it is not the hosted database. To point local development back to the local stack, use `http://127.0.0.1:54321` and the local CLI's publishable key, plus the local Postgres URL, in a local-only environment file.
