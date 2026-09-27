@@ -99,17 +99,29 @@ export async function POST(request: NextRequest) {
       historical_official_records: officialRecordContext,
       official_archive_unavailable: officialRecordContext.length === 0 && /\b(?:uwpd|police|blotter|historical incident|official record|crime record)\b/i.test(input.query),
     };
-    const responseBody = await callOpenAI("responses", {
+    const answerPayload = {
         model,
         input: [
           { role: "system", content: [{ type: "input_text", text: assistantSystemPrompt }] },
           { role: "user", content: [{ type: "input_text", text: JSON.stringify({ query: input.query, context }) }] },
         ],
         text: { format: { type: "json_schema", name: "campus_answer", strict: true, schema: answerJsonSchema } },
-        max_output_tokens: 650,
         store: false,
-      }, 18_000);
-    const decoded = parseOpenAIStructuredOutput(responseBody, answerSchema);
+      };
+    async function generateAnswer(maxOutputTokens: number) {
+      const responseBody = await callOpenAI("responses", { ...answerPayload, max_output_tokens: maxOutputTokens }, 18_000);
+      return parseOpenAIStructuredOutput(responseBody, answerSchema);
+    }
+    let decoded;
+    try {
+      decoded = await generateAnswer(2048);
+    } catch (error) {
+      // A truncated JSON response cannot be repaired by parsing its partial text.
+      // Retry once with room for both reasoning and the complete answer object.
+      if (!(error instanceof OpenAIServiceError) || error.diagnostic !== "incomplete-output-limit") throw error;
+      console.warn("Campus assistant retrying truncated response");
+      decoded = await generateAnswer(4096);
+    }
     const validSourceIds = new Set(sources.map((source) => source.id));
     const visibleSources = decoded.source_ids.filter((id) => validSourceIds.has(id)).map((id) => sources.find((source) => source.id === id)!).slice(0, 6);
     return jsonResponse({

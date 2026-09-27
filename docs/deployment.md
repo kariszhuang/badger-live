@@ -115,3 +115,7 @@ The import refreshes the current America/Chicago date and the following seven ev
 ## Verification
 
 Before every implementation commit, run `bun run lint`, `bun run typecheck`, `bun run test`, and `bun run build`. Use `bun run test:e2e` for browser acceptance checks. E2E currently expects a standalone build, live MapLibre tiles, and official calendar behavior. For manual two-browser testing, use two separate browser profiles against the same staging/local app and verify that broadcast messages only trigger a canonical safe API refresh.
+
+## Assistant response limits
+
+On 2026-09-27, the broad question “What events are happening today?” for September 26 reproduced a production `incomplete-output-limit` failure. The former 650-token cap truncated structured JSON. The assistant now allows 2,048 output tokens, requests a concise selection of events, and retries once at 4,096 tokens only for a confirmed output-limit truncation. Complete responses still pass the strict answer schema; refusals and invalid payloads are not treated as answers. Server diagnostics record only error codes, without question or answer content.
