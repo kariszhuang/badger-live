@@ -53,6 +53,7 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
   const [crimeWindow, setCrimeWindow] = useState<14 | 30>(30);
   const [crimeRefresh, setCrimeRefresh] = useState(0);
   const [crimeQuery, setCrimeQuery] = useState("");
+  const [hazardQuery, setHazardQuery] = useState("");
   const [crimeCategory, setCrimeCategory] = useState<CrimeCategory | "all">("all");
   const [selectedCrimeGroupId, setSelectedCrimeGroupId] = useState<string | null>(null);
   const [selectedCrimeIncidentId, setSelectedCrimeIncidentId] = useState<string | null>(null);
@@ -167,7 +168,7 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
     setSelectedGroupId(null);
     setSheet("closed");
     const url = new URL(window.location.href);
-    if (next === "crime") url.searchParams.set("mode", "crime"); else url.searchParams.delete("mode");
+    if (next === "events") url.searchParams.delete("mode"); else url.searchParams.set("mode", next);
     url.searchParams.delete("event");
     window.history.replaceState({}, "", url);
   };
@@ -201,6 +202,21 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
     const searchMatch = !needle || [event.title, event.subtitle, event.venueName, event.locationLabel, event.description, ...event.tags].some((field) => field?.toLocaleLowerCase().includes(needle));
     return categoryMatch && searchMatch;
   }), [events, query, category]);
+  const eventUpdates = useMemo(() => communityUpdates.filter((item) => {
+    if (item.kind !== "event") return false;
+    const starts = item.startsAt ? chicagoDate(new Date(item.startsAt)) : chicagoDate(new Date(item.createdAt));
+    const ends = item.endsAt ? chicagoDate(new Date(item.endsAt)) : starts;
+    const needle = query.trim().toLocaleLowerCase();
+    return date >= starts && date <= ends && (!needle || [item.title, item.description, item.placeName].some((value) => value.toLocaleLowerCase().includes(needle)));
+  }), [communityUpdates, date, query]);
+  const hazardUpdates = useMemo(() => communityUpdates.filter((item) => {
+    const needle = hazardQuery.trim().toLocaleLowerCase();
+    return item.kind !== "event" && (!needle || [item.title, item.description, item.placeName, item.kind].some((value) => value.toLocaleLowerCase().includes(needle)));
+  }), [communityUpdates, hazardQuery]);
+  const legacyHazards = useMemo(() => communityReports.filter((item) => {
+    const needle = hazardQuery.trim().toLocaleLowerCase();
+    return !needle || [item.title, item.kind].some((value) => value.toLocaleLowerCase().includes(needle));
+  }), [communityReports, hazardQuery]);
   const groups = useMemo(() => groupVenues(filtered), [filtered]);
   const statusTime = minuteTick ? new Date(minuteTick) : new Date();
   const liveGroupIds = groups.filter((group) => group.events.some((event) => eventStatus(event.startsAt, event.endsAt, date, statusTime) === "now")).map((group) => group.id);
@@ -309,10 +325,22 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
   }, [openReportComposer]);
   const postCommunityUpdate = useCallback((update: CommunityUpdate) => {
     addCommunityUpdate(update);
+    const nextMode = update.kind === "event" ? "events" : "hazards";
+    setMode(nextMode);
+    if (update.kind === "event" && update.startsAt) setDate(chicagoDate(new Date(update.startsAt)));
+    const url = new URL(window.location.href);
+    if (nextMode === "events") url.searchParams.delete("mode"); else url.searchParams.set("mode", nextMode);
+    if (update.kind === "event" && update.startsAt) url.searchParams.set("date", chicagoDate(new Date(update.startsAt)));
+    window.history.replaceState({}, "", url);
     setSelectedCommunityId(update.id);
     setCommunityLayerVisible(true);
     setFocus([...update.coordinates]);
+    setReportPin(null);
   }, [addCommunityUpdate]);
+  const openCommunityComposer = useCallback(() => {
+    setReportPin(null);
+    setCommunityComposerOpen(true);
+  }, []);
   const selectCommunityUpdate = useCallback((id: string) => {
     const update = communityUpdates.find((item) => item.id === id);
     if (!update) return;
@@ -320,7 +348,7 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
     setFocus([...update.coordinates]);
   }, [communityUpdates]);
   const selectedCommunityUpdate = communityUpdates.find((item) => item.id === selectedCommunityId) || null;
-  const pulseUpdates = communityUpdates.filter((item) => item.kind !== "event").slice(0, 4);
+  const pulseUpdates = hazardUpdates.slice(0, 4);
   const openAssistant = () => {
     setAssistantSessionId((id) => id + 1);
     setAssistantInitialQuery("");
@@ -468,10 +496,12 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
 
   const renderCards = (items: CampusEvent[]) => items.map((event) => <EventCard key={event.id} event={event} date={date} expanded={selected?.id === event.id} onSelect={() => selectEvent(event)} onShare={() => share(event)} />);
   const renderCrimeCards = (items: OfficialCrimeIncident[]) => items.map((incident) => <CrimeReportCard key={incident.id} incident={incident} selected={selectedCrimeIncidentId === incident.id} onSelect={() => selectCrimeIncident(incident)} />);
+  const renderCommunityCards = (items: CommunityUpdate[]) => items.map((item) => <CommunityUpdateCard key={item.id} update={item} selected={selectedCommunityId === item.id} onSelect={() => selectCommunityUpdate(item.id)} onVote={updateCommunityVote} />);
+  const renderLegacyHazards = () => legacyHazards.map((report) => <button key={report.id} type="button" className="legacy-hazard-card" onClick={() => handleSelectHazard(report.id)}><ShieldAlert size={19} /><span><strong>{report.title}</strong><small>Unverified observation · {report.observationCount} report{report.observationCount === 1 ? "" : "s"}</small></span></button>);
 
   return <main className={`experience ${sheet !== "closed" ? "has-open-sheet" : ""}`}>
     <section className={`map-panel ${pickingLocation ? "is-picking-location" : ""}`} aria-label="Campus map">
-      <CampusMap groups={mode === "events" ? groups : []} selectedGroupId={mode === "events" ? activeGroupId : null} liveGroupIds={mode === "events" ? liveGroupIds : []} crimeGroups={mode === "crime" ? crimeGroups : []} selectedCrimeGroupId={mode === "crime" ? selectedCrimeGroupId : null} onSelectCrimeGroup={selectCrimeGroup} hazards={communityReports} hazardsVisible={communityLayerVisible} selectedHazardId={selectedHazardId} onSelectHazard={handleSelectHazard} communityUpdates={communityUpdates} selectedCommunityId={selectedCommunityId} onSelectCommunity={selectCommunityUpdate} candidateRoute={candidateRoute} pickingLocation={pickingLocation} previewPoint={pendingMapPoint} onMapPoint={selectMapPoint} onSelect={selectGroup} focus={focus} sheetLevel={sheet} userLocation={userLocation} campusSignal={campusSignal} mapKey={mapKey} buildings={buildings} selectedBuildingId={selectedBuilding?.mapObjectId || null} onSelectBuilding={selectBuilding} />
+      <CampusMap groups={mode === "events" ? groups : []} selectedGroupId={mode === "events" ? activeGroupId : null} liveGroupIds={mode === "events" ? liveGroupIds : []} crimeGroups={mode === "crime" ? crimeGroups : []} selectedCrimeGroupId={mode === "crime" ? selectedCrimeGroupId : null} onSelectCrimeGroup={selectCrimeGroup} hazards={mode === "hazards" ? legacyHazards : []} hazardsVisible={mode === "hazards" && communityLayerVisible} selectedHazardId={selectedHazardId} onSelectHazard={handleSelectHazard} communityUpdates={mode === "events" ? eventUpdates : mode === "hazards" ? hazardUpdates : []} communityVisible={mode === "events" || (mode === "hazards" && communityLayerVisible)} selectedCommunityId={selectedCommunityId} onSelectCommunity={selectCommunityUpdate} candidateRoute={candidateRoute} pickingLocation={pickingLocation} previewPoint={pendingMapPoint} onMapPoint={selectMapPoint} onSelect={selectGroup} focus={focus} sheetLevel={sheet} userLocation={userLocation} campusSignal={campusSignal} mapKey={mapKey} buildings={buildings} selectedBuildingId={selectedBuilding?.mapObjectId || null} onSelectBuilding={selectBuilding} />
       <div className="map-tools">
         <button aria-label="Locate me" title={locating ? "Requesting your location…" : "Request location (permission is requested on tap)"} aria-busy={locating} disabled={locating} className={locating ? "is-locating" : undefined} onClick={locate}><LocateFixed size={19} /></button>
         <button aria-label="Back to campus" title="Back to campus" onClick={() => setCampusSignal((n) => n + 1)}><Compass size={19} /></button>
@@ -479,7 +509,7 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
         <button aria-label="Safety alerts and resources" title="Safety alerts and resources" onClick={() => openSafetyCenter()}><ShieldAlert size={19} /></button>
       </div>
       {!pickingLocation && <div className="map-actions" aria-label="Campus tools">
-        <button type="button" className="map-action-report" onClick={() => setCommunityComposerOpen(true)}><MapPin size={17} /><span>Post update</span></button>
+        <button type="button" className="map-action-report" onClick={openCommunityComposer}><MapPin size={17} /><span>Post update</span></button>
         <button type="button" className="map-action-assistant" onClick={openAssistant}><Sparkles size={17} /><span>Ask Badger</span></button>
       </div>}
       {pickingLocation && <div className={`map-pick-banner ${pendingMapPoint ? "has-preview" : ""}`} role="status">
@@ -491,26 +521,30 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
       {locationMessage && <div className={`map-notice map-notice--${locationMessage.kind}`} role={locationMessage.kind === "error" ? "alert" : "status"} aria-live={locationMessage.kind === "error" ? "assertive" : "polite"}><span className="map-notice-copy">{locationMessage.text}</span><button className="map-notice-dismiss" aria-label="Dismiss location message" onClick={() => setLocationMessage(null)}><X size={16} /></button></div>}
     </section>
 
-    <section className="discovery-panel" aria-label={mode === "crime" ? "Crime reports" : "Event discovery"}>
+    <section className="discovery-panel" aria-label={mode === "crime" ? "Crime reports" : mode === "hazards" ? "Hazard reports" : "Event discovery"}>
       <DiscoveryToolbar
         mode={mode}
         onModeChange={changeMode}
-        resultCount={mode === "crime" ? filteredCrimes.length : filtered.length}
+        resultCount={mode === "crime" ? filteredCrimes.length : mode === "hazards" ? hazardUpdates.length + legacyHazards.length : filtered.length + eventUpdates.length}
         listOpen={sheet !== "closed"}
         onToggleList={toggleResultList}
         communityVisible={communityLayerVisible}
-        communityCount={communityReports.length + communityUpdates.length}
+        communityCount={hazardUpdates.length + legacyHazards.length}
         communityStatus={communityUpdatesUnavailable ? "Community updates offline" : communityReportsUnavailable ? communityReports.length ? "Saved updates · offline" : "Community observations offline" : communityReportsStale ? "Showing saved observations" : null}
         onCommunityChange={setCommunityLayerVisible}
         events={{ date, query, category, availableCategories: availableEventCategories, onDateChange: chooseDate, onQueryChange: search, onCategoryChange: chooseCategory, onPrevious: () => chooseDate(shiftDate(date, -1)), onNext: () => chooseDate(shiftDate(date, 1)) }}
+        hazards={{ query: hazardQuery, onQueryChange: setHazardQuery }}
         crime={{ query: crimeQuery, category: crimeCategory, windowDays: crimeWindow, latestArticleDate: crimeData?.latestArticleDate || null, loading: crimeLoading, availableCategories: availableCrimeCategories, onQueryChange: (value) => { setCrimeQuery(value); setSelectedCrimeGroupId(null); setSelectedCrimeIncidentId(null); }, onCategoryChange: (value) => { setCrimeCategory(value); setSelectedCrimeGroupId(null); setSelectedCrimeIncidentId(null); }, onWindowChange: chooseCrimeWindow }}
       />
 
-      <section className="community-pulse" aria-label="Unofficial campus updates"><div className="community-pulse-heading"><span className="eyebrow">UNOFFICIAL · CAMPUS PULSE</span><strong>Heads up around campus</strong></div><div className="community-pulse-items">{pulseUpdates.length ? pulseUpdates.map((item) => <button key={item.id} type="button" onClick={() => selectCommunityUpdate(item.id)}><CommunityIcon kind={item.kind} size={17} /><span>{item.title}</span>{item.isDemo && <small>DEMO</small>}</button>) : <span className="community-pulse-empty">{communityUpdatesUnavailable ? "Updates unavailable" : "No community conditions yet"}</span>}</div></section>
+      {mode === "hazards" && <section className="community-pulse" aria-label="Unofficial hazard updates"><div className="community-pulse-heading"><span className="eyebrow">UNOFFICIAL · HAZARDS</span><strong>Heads up around campus</strong></div><div className="community-pulse-items">{pulseUpdates.length ? pulseUpdates.map((item) => <button key={item.id} type="button" onClick={() => selectCommunityUpdate(item.id)}><CommunityIcon kind={item.kind} size={17} /><span>{item.title}</span>{item.isDemo && <small>DEMO</small>}</button>) : <span className="community-pulse-empty">{communityUpdatesUnavailable ? "Updates unavailable" : "No community conditions yet"}</span>}</div></section>}
 
       {mode === "events" ? <>
       <div className="events-heading"><div><span className="eyebrow">ON CAMPUS</span><h2>{date === chicagoDate() ? "Today’s discoveries" : formatDay(date)}</h2></div><button className="share-button" onClick={() => share()} aria-label="Share this date">{copied ? <Check size={17} /> : <Share2 size={17} />}</button></div>
-      <p className="count-line">{loading ? "Loading official calendar…" : error ? "Calendar unavailable" : `${filtered.length} events · ${mappedCount} on map · ${unmapped.length} without map locations`}{data && !error && <span className="cache-note">{data.cacheStatus === "supabase" ? `Saved in Supabase · synced ${new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" }).format(new Date(data.fetchedAt))}${data.stale ? " · stale copy" : ""}` : data.cacheStatus === "snapshot" ? "Verified offline snapshot" : "Live UW calendar"}</span>}</p>
+      <p className="count-line">{loading ? "Loading official calendar…" : error ? "Calendar unavailable" : `${filtered.length} UW events · ${eventUpdates.length} unofficial events · ${mappedCount} official on map`}{data && !error && <span className="cache-note">{data.cacheStatus === "supabase" ? `Saved in Supabase · synced ${new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" }).format(new Date(data.fetchedAt))}${data.stale ? " · stale copy" : ""}` : data.cacheStatus === "snapshot" ? "Verified offline snapshot" : "Live UW calendar"}</span>}</p>
+      </> : mode === "hazards" ? <>
+        <div className="events-heading"><div><span className="eyebrow">COMMUNITY · UNVERIFIED</span><h2>Hazard reports</h2></div><ShieldAlert size={20} /></div>
+        <p className="count-line">{`${hazardUpdates.length} community update${hazardUpdates.length === 1 ? "" : "s"} · ${legacyHazards.length} detailed observation${legacyHazards.length === 1 ? "" : "s"}`}<span className="cache-note">Demo examples are marked and do not describe current conditions.</span></p>
       </> : <>
         <div className="events-heading crime-events-heading"><div><span className="eyebrow">UWPD OFFICIAL DAILY BLOTTER</span><h2>Recent reports</h2></div><span className="crime-range-badge">{crimeWindow} days</span></div>
         <p className="count-line">{crimeLoading && !crimeData ? "Loading official police blotter…" : crimeError ? "UWPD archive unavailable" : `${filteredCrimes.length} selected entries · ${mappedCrimeCount} mapped · ${unmappedCrimeCount} without a verified building`}{crimeData && <span className="cache-note">Fetched {new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" }).format(new Date(crimeData.fetchedAt))}{crimeData.partial ? " · archive may be incomplete" : ""}</span>}</p>
@@ -521,13 +555,13 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
         {error && <div className="error-state" role="alert"><h3>We couldn’t load the UW calendar.</h3><p>Please try another date or check back shortly. No events have been invented.</p></div>}
         {!loading && !error && filtered.length === 0 && <div className="empty-state"><Sparkles size={27} /><h3>No matches this time.</h3><p>Try another interest, search term, or date.</p><button onClick={() => { chooseCategory("all"); search(""); }}>Clear filters</button></div>}
         <div className="events-scroll" ref={listRef}>
-          {communityUpdates.length > 0 && <section className="community-feed" aria-label="Unofficial community posts"><div className="community-feed-heading"><span className="eyebrow">FROM THE COMMUNITY</span><h3>Unofficial updates</h3><p>Demo conditions are examples. Check source links for event details.</p></div>{communityUpdates.map((item) => <CommunityUpdateCard key={item.id} update={item} selected={selectedCommunityId === item.id} onSelect={() => selectCommunityUpdate(item.id)} onVote={updateCommunityVote} />)}</section>}
+          {eventUpdates.length > 0 && <section className="community-feed" aria-label="Unofficial events"><div className="community-feed-heading"><span className="eyebrow">FROM THE COMMUNITY</span><h3>Unofficial events</h3><p>Check event source links for details.</p></div>{renderCommunityCards(eventUpdates)}</section>}
           {selectedGroup && <div className="venue-banner"><span className="eyebrow">SELECTED VENUE</span><strong>{selectedGroup.name}</strong><span>{selectedGroup.events.length} separate {selectedGroup.events.length === 1 ? "event" : "events"} here</span></div>}
           {renderCards(filtered.filter((event) => event.coordinates))}
           {unmapped.length > 0 && <section className="unmapped-section"><h3>Locations not mapped</h3><p>These UW events have no verified map coordinates. Their official listings are still available.</p>{renderCards(unmapped)}</section>}
           <p className="source-footer">EVENT DATA FROM <a href="https://today.wisc.edu/" target="_blank" rel="noopener noreferrer">UW TODAY ↗</a></p>
         </div>
-      </> : <>
+      </> : mode === "hazards" ? <div className="events-scroll hazard-events-scroll" ref={listRef}><section className="community-feed" aria-label="Unofficial hazards"><div className="community-feed-heading"><span className="eyebrow">COMMUNITY CONDITIONS</span><h3>Hazards on campus</h3><p>Demo examples are illustrations, not live hazards.</p></div>{renderCommunityCards(hazardUpdates)}{renderLegacyHazards()}</section></div> : <>
         {crimeError && <div className="crime-error-state" role="alert"><strong>{crimeData ? "Could not refresh the UWPD archive." : "UWPD archive unavailable."}</strong><span>{crimeError}</span><button type="button" onClick={() => { setCrimeError(""); setCrimeRefresh((value) => value + 1); }}>Try again</button></div>}
         {crimeLoading && !crimeData && <div className="crime-loading-state" role="status"><span className="loading-orbit" />Reading recent official blotter entries…</div>}
         {crimeData && !crimeError && filteredCrimes.length === 0 && <div className="empty-state"><ShieldAlert size={24} /><h3>{crimeData.incidents.length === 0 ? "No selected entries in this window." : "No reports match these filters."}</h3><p>Only selected official incident types are included; this is not a complete crime or safety dataset.</p><button type="button" onClick={() => { setCrimeCategory("all"); setCrimeQuery(""); }}>Clear filters</button></div>}
@@ -568,22 +602,25 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
     <SafetyCenter open={safetyOpen} onOpenChange={setSafetyOpen} />
     <RoutePlanner open={routePlannerOpen} onOpenChange={setRoutePlannerOpen} onRouteChange={setCandidateRoute} />
     <ReportSheet key={`report-${reportSessionId}`} open={reportOpen} onOpenChange={setReportOpen} initialText={reportInitialText} pinCoordinates={reportPin} onChooseMapPoint={chooseMapPointMode} onClearPin={clearReportPin} onReportsPosted={onReportsChanged} onViewReport={viewReportOnMap} />
-    <CommunityComposer open={communityComposerOpen} onOpenChange={setCommunityComposerOpen} pinCoordinates={reportPin} onChooseMapPoint={chooseCommunityMapPoint} onPosted={postCommunityUpdate} />
+    <CommunityComposer open={communityComposerOpen} onOpenChange={setCommunityComposerOpen} pinCoordinates={reportPin} onChooseMapPoint={chooseCommunityMapPoint} onClearPin={clearReportPin} onPosted={postCommunityUpdate} describePoint={(point) => describeCampusMapPoint(buildings, point)} />
     <Dialog open={Boolean(selectedCommunityUpdate)} onOpenChange={(open) => { if (!open) setSelectedCommunityId(null); }}><DialogContent className="community-detail-dialog">{selectedCommunityUpdate && <><DialogHeader><DialogTitle>Unofficial campus update</DialogTitle><DialogDescription>{selectedCommunityUpdate.isDemo ? "Demo example · not a live condition" : "Community post · not verified by UW"}</DialogDescription></DialogHeader><CommunityUpdateCard update={selectedCommunityUpdate} onVote={updateCommunityVote} /></>}</DialogContent></Dialog>
     <AssistantSheet key={`assistant-${assistantSessionId}`} open={assistantOpen} onOpenChange={setAssistantOpen} date={date} initialQuery={assistantInitialQuery} onPostAsReport={postAssistantSuggestion} />
     <ReportDetailsSheet report={selectedHazard} open={reportDetailsOpen} onOpenChange={(open) => { setReportDetailsOpen(open); if (!open) setSelectedHazardId(null); }} onChanged={() => void refreshCommunityReports()} />
 
-    <section className={`mobile-sheet sheet-${sheet}`} aria-label={mode === "crime" ? "UWPD blotter list" : "Event list"} aria-hidden={sheet === "closed"} inert={sheet === "closed"} onKeyDown={(event) => { if (event.key === "Escape") { setSheet("closed"); setSelectedId(null); setSelectedGroupId(null); setSelectedCrimeGroupId(null); setSelectedCrimeIncidentId(null); } }}>
+    <section className={`mobile-sheet sheet-${sheet}`} aria-label={mode === "crime" ? "UWPD blotter list" : mode === "hazards" ? "Hazard list" : "Event list"} aria-hidden={sheet === "closed"} inert={sheet === "closed"} onKeyDown={(event) => { if (event.key === "Escape") { setSheet("closed"); setSelectedId(null); setSelectedGroupId(null); setSelectedCrimeGroupId(null); setSelectedCrimeIncidentId(null); } }}>
       <div className="sheet-handle-zone" onPointerDown={(event) => { dragStart.current = event.clientY; }} onPointerUp={(event) => {
         if (dragStart.current === null) return;
         const delta = event.clientY - dragStart.current;
         if (delta < -45 && sheet === "half") setSheet("full");
         if (delta > 45) setSheet(sheet === "full" ? "half" : "closed");
         dragStart.current = null;
-      }}><button className="sheet-grip" aria-label={sheet === "full" ? "Show compact list" : sheet === "half" ? `Expand ${mode === "crime" ? "report" : "event"} list` : `Show ${mode === "crime" ? "report" : "event"} list`} onClick={() => setSheet(sheet === "full" ? "half" : "full")} /></div>
+      }}><button className="sheet-grip" aria-label={sheet === "full" ? "Show compact list" : sheet === "half" ? `Expand ${mode === "events" ? "event" : mode === "hazards" ? "hazard" : "report"} list` : `Show ${mode === "events" ? "event" : mode === "hazards" ? "hazard" : "report"} list`} onClick={() => setSheet(sheet === "full" ? "half" : "full")} /></div>
       {mode === "events" ? <>
         <div className="sheet-topline"><div><span className="eyebrow">{selectedGroup ? "AT THIS VENUE" : "UW OFFICIAL CALENDAR"}</span><h2>{selectedGroup?.name || `${filtered.length} things happening`}</h2><p>{data?.fallback ? "Verified snapshot · live UW calendar unavailable" : selectedGroup ? `${selectedGroup.events.length} separate events` : `${mappedCount} on map · ${unmapped.length} without map locations`}</p></div><button aria-label={selectedGroup || selectedId ? "Close venue selection" : "Close event list"} onClick={() => { if (selectedId) updateUrl(date, null); setSelectedGroupId(null); setSelectedId(null); setSheet("closed"); }}><X size={18} /></button></div>
-        <div className="sheet-scroll">{communityUpdates.length > 0 && <section className="community-feed"><div className="community-feed-heading"><span className="eyebrow">UNOFFICIAL</span><h3>Community updates</h3></div>{communityUpdates.map((item) => <CommunityUpdateCard key={item.id} update={item} onSelect={() => selectCommunityUpdate(item.id)} onVote={updateCommunityVote} />)}</section>}{error ? <p>UW calendar is temporarily unavailable.</p> : filtered.length === 0 ? <p>No official events match your filters.</p> : <>{renderCards(selectedGroup ? selectedGroup.events : filtered.filter((event) => event.coordinates))}{!selectedGroup && unmapped.length > 0 && <div className="unmapped-section"><h3>Locations not mapped</h3>{renderCards(unmapped)}</div>}</>}</div>
+        <div className="sheet-scroll">{eventUpdates.length > 0 && <section className="community-feed"><div className="community-feed-heading"><span className="eyebrow">UNOFFICIAL EVENTS</span><h3>Community events</h3></div>{renderCommunityCards(eventUpdates)}</section>}{error ? <p>UW calendar is temporarily unavailable.</p> : filtered.length === 0 ? <p>No official events match your filters.</p> : <>{renderCards(selectedGroup ? selectedGroup.events : filtered.filter((event) => event.coordinates))}{!selectedGroup && unmapped.length > 0 && <div className="unmapped-section"><h3>Locations not mapped</h3>{renderCards(unmapped)}</div>}</>}</div>
+      </> : mode === "hazards" ? <>
+        <div className="sheet-topline"><div><span className="eyebrow">UNOFFICIAL · HAZARDS</span><h2>{hazardUpdates.length + legacyHazards.length} hazard reports</h2><p>Demo examples are not live conditions</p></div><button aria-label="Close hazard list" onClick={() => setSheet("closed")}><X size={18} /></button></div>
+        <div className="sheet-scroll"><section className="community-feed">{renderCommunityCards(hazardUpdates)}{renderLegacyHazards()}</section></div>
       </> : <>
         <div className="sheet-topline crime-sheet-topline"><div><span className="eyebrow">{selectedCrimeGroup ? "AT THIS BUILDING" : "UWPD OFFICIAL BLOTTER"}</span><h2>{selectedCrimeGroup?.name || `${filteredCrimes.length} selected reports`}</h2><p>{selectedCrimeGroup ? `${selectedCrimeGroup.incidents.length} separate entries` : `${mappedCrimeCount} mapped · ${unmappedCrimeCount} unpinned`} · not live alerts or findings of guilt</p></div><button aria-label={selectedCrimeGroupId || selectedCrimeIncidentId ? "Close selected crime location" : "Close report list"} onClick={() => { setSelectedCrimeGroupId(null); setSelectedCrimeIncidentId(null); setSheet("closed"); }}><X size={18} /></button></div>
         <div className="sheet-scroll crime-sheet-scroll">{crimeError && !crimeData ? <div role="alert"><p>UWPD archive unavailable. {crimeError}</p><button type="button" onClick={() => { setCrimeError(""); setCrimeRefresh((value) => value + 1); }}>Try again</button></div> : crimeLoading && !crimeData ? <p>Loading the official blotter…</p> : <>

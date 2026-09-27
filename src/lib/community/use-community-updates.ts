@@ -12,7 +12,7 @@ export function useCommunityUpdates() {
       const response = await fetch("/api/community", { cache: "no-store" });
       const result = await response.json() as { updates?: CommunityUpdate[] };
       if (!response.ok || !Array.isArray(result.updates)) throw new Error("Community feed unavailable");
-      setUpdates(result.updates);
+      setUpdates((current) => JSON.stringify(current) === JSON.stringify(result.updates) ? current : result.updates!);
       setUnavailable(false);
     } catch { setUnavailable(true); }
   }, []);

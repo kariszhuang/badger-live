@@ -32,6 +32,8 @@ type CrimeControls = {
   onWindowChange: (days: 14 | 30) => void;
 };
 
+type HazardControls = { query: string; onQueryChange: (query: string) => void };
+
 export function DiscoveryToolbar({
   mode,
   onModeChange,
@@ -43,6 +45,7 @@ export function DiscoveryToolbar({
   communityStatus,
   onCommunityChange,
   events,
+  hazards,
   crime,
 }: {
   mode: DiscoveryMode;
@@ -55,10 +58,12 @@ export function DiscoveryToolbar({
   communityStatus: string | null;
   onCommunityChange: (visible: boolean) => void;
   events: EventsControls;
+  hazards: HazardControls;
   crime: CrimeControls;
 }) {
-  const query = mode === "events" ? events.query : crime.query;
-  const onQueryChange = mode === "events" ? events.onQueryChange : crime.onQueryChange;
+  const query = mode === "events" ? events.query : mode === "hazards" ? hazards.query : crime.query;
+  const onQueryChange = mode === "events" ? events.onQueryChange : mode === "hazards" ? hazards.onQueryChange : crime.onQueryChange;
+  const listNoun = mode === "events" ? "event" : mode === "hazards" ? "hazard" : "report";
 
   return <header className="discovery-header discovery-toolbar">
     <div className="toolbar-brand-line">
@@ -68,7 +73,7 @@ export function DiscoveryToolbar({
         <span className="brand-caption">CAMPUS MAP</span>
       </div>
       <ModeSwitcher value={mode} onChange={onModeChange} />
-      <button type="button" className={`toolbar-list-button ${listOpen ? "is-open" : ""}`} onClick={onToggleList} aria-label={listOpen ? `Hide ${mode === "crime" ? "report" : "event"} list panel` : `Show ${resultCount} ${mode === "crime" ? "reports" : "events"}`} aria-expanded={listOpen}>
+      <button type="button" className={`toolbar-list-button ${listOpen ? "is-open" : ""}`} onClick={onToggleList} aria-label={listOpen ? `Hide ${listNoun} list panel` : `Show ${resultCount} ${listNoun}${resultCount === 1 ? "" : "s"}`} aria-expanded={listOpen}>
         {listOpen ? <X size={18} aria-hidden="true" /> : <List size={17} aria-hidden="true" />}
         <span className="toolbar-list-count" aria-hidden="true">{resultCount}</span>
       </button>
@@ -76,9 +81,9 @@ export function DiscoveryToolbar({
 
     <label className="search-field discovery-search">
       <Search size={18} aria-hidden="true" />
-      <span className="sr-only">{mode === "crime" ? "Search blotter reports" : "Search events"}</span>
+      <span className="sr-only">{mode === "crime" ? "Search blotter reports" : mode === "hazards" ? "Search hazards" : "Search events"}</span>
       <input
-        placeholder={mode === "crime" ? "Search reports or places" : "What's happening, Badgers?"}
+        placeholder={mode === "crime" ? "Search reports or places" : mode === "hazards" ? "Search hazards or places" : "What's happening, Badgers?"}
         value={query}
         onChange={(event) => onQueryChange(event.target.value)}
       />
@@ -93,7 +98,10 @@ export function DiscoveryToolbar({
       </div>
       <div className="filter-row toolbar-filter-row" role="group" aria-label="Filter events by interest">
         {categories.filter((item) => item === "all" || events.availableCategories.includes(item)).map((item) => <button type="button" key={item} className={`filter-chip category-filter-${item} ${events.category === item ? "active" : ""}`} aria-pressed={events.category === item} onClick={() => events.onCategoryChange(item)}><EventCategoryIcon category={item} size={15} />{item === "all" ? "All" : item === "talks" ? "Talks" : item[0].toUpperCase() + item.slice(1)}</button>)}
-        <button type="button" className={`filter-chip community-layer-chip ${communityVisible ? "active" : ""}`} aria-pressed={communityVisible} title={communityStatus || "Show community observations"} onClick={() => onCommunityChange(!communityVisible)}><MapPin size={15} />Community · {communityCount}</button>
+      </div>
+    </> : mode === "hazards" ? <>
+      <div className="filter-row toolbar-filter-row" role="group" aria-label="Hazard map controls">
+        <button type="button" className={`filter-chip community-layer-chip ${communityVisible ? "active" : ""}`} aria-pressed={communityVisible} title={communityStatus || "Show hazard markers"} onClick={() => onCommunityChange(!communityVisible)}><MapPin size={15} />Map pins · {communityCount}</button>
         {communityStatus && <span className="community-layer-status" role="status">{communityStatus}</span>}
       </div>
     </> : <>
@@ -104,8 +112,6 @@ export function DiscoveryToolbar({
       <div className="filter-row crime-filter-row toolbar-filter-row" role="group" aria-label="Filter Crime reports by type">
         <button type="button" className={`filter-chip crime-filter-all ${crime.category === "all" ? "active" : ""}`} aria-pressed={crime.category === "all"} onClick={() => crime.onCategoryChange("all")}><ShieldCheck size={15} aria-hidden="true" />All reports</button>
         {crimeCategories.filter((item) => crime.availableCategories.includes(item)).map((item) => <button type="button" key={item} className={`filter-chip crime-filter-${item} ${crime.category === item ? "active" : ""}`} aria-pressed={crime.category === item} onClick={() => crime.onCategoryChange(item)}><CrimeCategoryIcon category={item} size={15} />{crimeCategoryInfo[item].label}</button>)}
-        <button type="button" className={`filter-chip community-layer-chip ${communityVisible ? "active" : ""}`} aria-pressed={communityVisible} title={communityStatus || "Show community observations"} onClick={() => onCommunityChange(!communityVisible)}><MapPin size={15} />Community · {communityCount}</button>
-        {communityStatus && <span className="community-layer-status" role="status">{communityStatus}</span>}
       </div>
     </>}
   </header>;

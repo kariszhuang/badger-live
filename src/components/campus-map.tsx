@@ -16,7 +16,7 @@ import { type CrimeCategory, type CrimeVenueGroup } from "@/lib/crime-model";
 import { CAMPUS_BUILDING_FILL_PAINT, campusBuildingLayerInsertionPoints } from "@/lib/campus-building-map-style";
 import { CrimeCategoryIcon } from "./category-icons";
 
-type Props = { groups: VenueGroup[]; selectedGroupId: string | null; liveGroupIds: string[]; crimeGroups: CrimeVenueGroup[]; selectedCrimeGroupId: string | null; onSelectCrimeGroup: (id: string) => void; hazards: HazardReport[]; hazardsVisible: boolean; selectedHazardId: string | null; onSelectHazard: (id: string) => void; communityUpdates: CommunityUpdate[]; selectedCommunityId: string | null; onSelectCommunity: (id: string) => void; candidateRoute: PlannedWalkingRoute | null; pickingLocation: boolean; previewPoint: [number, number] | null; onMapPoint: (coordinates: [number, number]) => void; onSelect: (id: string) => void; focus: [number, number] | null; sheetLevel: "closed" | "half" | "full"; userLocation: [number, number] | null; campusSignal: number; mapKey: string; buildings: CampusBuildings | null; selectedBuildingId: string | null; onSelectBuilding: (building: CampusBuilding, coordinates: [number, number]) => void };
+type Props = { groups: VenueGroup[]; selectedGroupId: string | null; liveGroupIds: string[]; crimeGroups: CrimeVenueGroup[]; selectedCrimeGroupId: string | null; onSelectCrimeGroup: (id: string) => void; hazards: HazardReport[]; hazardsVisible: boolean; selectedHazardId: string | null; onSelectHazard: (id: string) => void; communityUpdates: CommunityUpdate[]; communityVisible: boolean; selectedCommunityId: string | null; onSelectCommunity: (id: string) => void; candidateRoute: PlannedWalkingRoute | null; pickingLocation: boolean; previewPoint: [number, number] | null; onMapPoint: (coordinates: [number, number]) => void; onSelect: (id: string) => void; focus: [number, number] | null; sheetLevel: "closed" | "half" | "full"; userLocation: [number, number] | null; campusSignal: number; mapKey: string; buildings: CampusBuildings | null; selectedBuildingId: string | null; onSelectBuilding: (building: CampusBuilding, coordinates: [number, number]) => void };
 const CENTER: [number, number] = [-89.405, 43.075];
 const BUILDING_SOURCE = "uw-campus-buildings";
 const BUILDING_FILL = "uw-campus-building-fill";
@@ -43,7 +43,7 @@ const ICON_PATHS: Record<EventCategory, string[]> = {
 };
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, selectedCrimeGroupId, onSelectCrimeGroup, hazards, hazardsVisible, selectedHazardId, onSelectHazard, communityUpdates, selectedCommunityId, onSelectCommunity, candidateRoute, pickingLocation, previewPoint, onMapPoint, onSelect, focus, sheetLevel, userLocation, campusSignal, mapKey, buildings, selectedBuildingId, onSelectBuilding }: Props) {
+export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, selectedCrimeGroupId, onSelectCrimeGroup, hazards, hazardsVisible, selectedHazardId, onSelectHazard, communityUpdates, communityVisible, selectedCommunityId, onSelectCommunity, candidateRoute, pickingLocation, previewPoint, onMapPoint, onSelect, focus, sheetLevel, userLocation, campusSignal, mapKey, buildings, selectedBuildingId, onSelectBuilding }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const markers = useRef<Marker[]>([]);
@@ -169,7 +169,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
       markers.current.forEach((marker) => marker.remove()); markers.current = [];
       unmountRoots(mountedCrimeRoots);
       crimeMarkers.current.forEach((marker) => marker.remove()); crimeMarkers.current = [];
-      unmountRoots(mountedCommunityRoots);
+      deferUnmountRoots(mountedCommunityRoots);
       communityMarkers.current.forEach((marker) => marker.remove()); communityMarkers.current = [];
       userMarker.current?.remove(); userMarker.current = null;
       previewMarker.current?.remove(); previewMarker.current = null;
@@ -255,7 +255,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
   useEffect(() => {
     const instance = map.current;
     const roots = crimeIconRoots.current;
-    unmountRoots(roots);
+    deferUnmountRoots(roots);
     crimeMarkers.current.forEach((marker) => marker.remove());
     crimeMarkers.current = [];
     if (!instance) return;
@@ -289,7 +289,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
       return new maplibregl.Marker({ element, anchor: "center" }).setLngLat(group.coordinates).addTo(instance);
     });
     return () => {
-      unmountRoots(roots);
+      deferUnmountRoots(roots);
       crimeMarkers.current.forEach((marker) => marker.remove()); crimeMarkers.current = [];
     };
   }, [crimeGroups]);
@@ -300,31 +300,34 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
 
   useEffect(() => {
     const roots = communityIconRoots.current;
-    unmountRoots(roots);
+    deferUnmountRoots(roots);
     communityMarkers.current.forEach((marker) => marker.remove());
     communityMarkers.current = [];
     const instance = map.current;
-    if (!instance || !hazardsVisible) return;
+    if (!instance || !communityVisible) return;
     communityMarkers.current = communityUpdates.map((update) => {
       const element = document.createElement("button");
       element.type = "button";
-      element.className = `community-map-marker kind-${update.kind}${update.isDemo ? " is-demo" : ""}`;
+      element.className = "community-map-marker-anchor";
       element.dataset.communityId = update.id;
       element.setAttribute("aria-label", `${update.isDemo ? "Demo example" : "Unofficial update"}: ${update.title} at ${update.placeName}`);
       element.title = `${update.title} · ${update.placeName}${update.isDemo ? " · Demo example" : " · Unofficial"}`;
+      const visual = document.createElement("span");
+      visual.className = `community-map-marker kind-${update.kind}${update.isDemo ? " is-demo" : ""}`;
       const symbol = document.createElement("span");
       const root = createRoot(symbol);
       root.render(<CommunityIcon kind={update.kind} size={20} />);
       roots.push(root);
-      element.append(symbol);
+      visual.append(symbol);
+      element.append(visual);
       element.addEventListener("click", (event) => { event.stopPropagation(); onSelectCommunityRef.current(update.id); });
       return new maplibregl.Marker({ element, anchor: "center" }).setLngLat(update.coordinates).addTo(instance);
     });
     return () => {
-      unmountRoots(roots);
+      deferUnmountRoots(roots);
       communityMarkers.current.forEach((marker) => marker.remove()); communityMarkers.current = [];
     };
-  }, [communityUpdates, hazardsVisible]);
+  }, [communityUpdates, communityVisible]);
 
   useEffect(() => {
     communityMarkers.current.forEach((marker) => marker.getElement().classList.toggle("is-selected", marker.getElement().dataset.communityId === selectedCommunityId));
@@ -370,7 +373,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
     element.className = "map-point-preview-marker";
     element.setAttribute("role", "img");
     element.setAttribute("aria-label", "Preview pin for the point you are choosing");
-    previewMarker.current = new maplibregl.Marker({ element, anchor: "bottom" }).setLngLat(previewPoint).addTo(map.current);
+    previewMarker.current = new maplibregl.Marker({ element, anchor: "center" }).setLngLat(previewPoint).addTo(map.current);
     return () => {
       previewMarker.current?.remove();
       previewMarker.current = null;
@@ -593,6 +596,11 @@ function createEventIcon(category: EventCategory): SVGSVGElement {
 function unmountRoots(roots: Root[]) {
   for (const root of roots) root.unmount();
   roots.length = 0;
+}
+
+function deferUnmountRoots(roots: Root[]) {
+  const pending = roots.splice(0);
+  if (pending.length) queueMicrotask(() => pending.forEach((root) => root.unmount()));
 }
 
 function applyCampusPalette(instance: MapLibreMap) {
