@@ -7,8 +7,9 @@ import type { FeatureCollection } from "geojson";
 import type { EventCategory, VenueGroup } from "@/lib/events";
 import type { CommunitySafetyReport } from "@/lib/safety";
 import { findCampusBuildingAt, type CampusBuilding, type CampusBuildings } from "@/lib/campus-buildings";
+import { crimeCategoryInfo, type CrimeCategory, type CrimeVenueGroup } from "@/lib/crime-model";
 
-type Props = { groups: VenueGroup[]; selectedGroupId: string | null; liveGroupIds: string[]; safetyReports: CommunitySafetyReport[]; selectedSafetyReportId: string | null; angled: boolean; onSelect: (id: string) => void; onSelectSafetyReport: (id: string) => void; focus: [number, number] | null; userLocation: [number, number] | null; fitSignal: number; campusSignal: number; mapKey: string; buildings: CampusBuildings | null; selectedBuildingId: string | null; onSelectBuilding: (building: CampusBuilding, coordinates: [number, number]) => void };
+type Props = { groups: VenueGroup[]; selectedGroupId: string | null; liveGroupIds: string[]; crimeGroups: CrimeVenueGroup[]; selectedCrimeGroupId: string | null; onSelectCrimeGroup: (id: string) => void; safetyReports: CommunitySafetyReport[]; selectedSafetyReportId: string | null; angled: boolean; onSelect: (id: string) => void; onSelectSafetyReport: (id: string) => void; focus: [number, number] | null; userLocation: [number, number] | null; fitSignal: number; campusSignal: number; mapKey: string; buildings: CampusBuildings | null; selectedBuildingId: string | null; onSelectBuilding: (building: CampusBuilding, coordinates: [number, number]) => void };
 const CENTER: [number, number] = [-89.405, 43.075];
 const CAMPUS_BOUNDS: [[number, number], [number, number]] = [[-89.455, 43.045], [-89.375, 43.095]];
 const BUILDING_SOURCE = "uw-campus-buildings";
@@ -36,16 +37,18 @@ const LANDMARKS = [
 ];
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-export function CampusMap({ groups, selectedGroupId, liveGroupIds, safetyReports, selectedSafetyReportId, onSelectSafetyReport, angled, onSelect, focus, userLocation, fitSignal, campusSignal, mapKey, buildings, selectedBuildingId, onSelectBuilding }: Props) {
+export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, selectedCrimeGroupId, onSelectCrimeGroup, safetyReports, selectedSafetyReportId, onSelectSafetyReport, angled, onSelect, focus, userLocation, fitSignal, campusSignal, mapKey, buildings, selectedBuildingId, onSelectBuilding }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const markers = useRef<Marker[]>([]);
+  const crimeMarkers = useRef<Marker[]>([]);
   const landmarkMarkers = useRef<Marker[]>([]);
   const safetyMarkers = useRef<Marker[]>([]);
   const userMarker = useRef<Marker | null>(null);
   const fallbackUsed = useRef(false);
   const onSelectRef = useRef(onSelect);
   const onSelectSafetyReportRef = useRef(onSelectSafetyReport);
+  const onSelectCrimeGroupRef = useRef(onSelectCrimeGroup);
   const onSelectBuildingRef = useRef(onSelectBuilding);
   const buildingsRef = useRef(buildings);
   const selectedBuildingIdRef = useRef(selectedBuildingId);
@@ -55,6 +58,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, safetyReports
   const angledRef = useRef(angled);
   useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
   useEffect(() => { onSelectSafetyReportRef.current = onSelectSafetyReport; }, [onSelectSafetyReport]);
+  useEffect(() => { onSelectCrimeGroupRef.current = onSelectCrimeGroup; }, [onSelectCrimeGroup]);
   useEffect(() => { onSelectBuildingRef.current = onSelectBuilding; }, [onSelectBuilding]);
   useEffect(() => { buildingsRef.current = buildings; }, [buildings]);
   useEffect(() => { selectedBuildingIdRef.current = selectedBuildingId; }, [selectedBuildingId]);
@@ -92,7 +96,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, safetyReports
       };
       const onBuildingClick = (event: maplibregl.MapMouseEvent) => {
         const target = event.originalEvent.target;
-        if (target instanceof Element && target.closest(".maplibregl-marker, .venue-marker-anchor, .landmark-marker, .safety-map-marker, .maplibregl-ctrl")) return;
+        if (target instanceof Element && target.closest(".maplibregl-marker, .venue-marker-anchor, .crime-map-marker-anchor, .landmark-marker, .safety-map-marker, .maplibregl-ctrl")) return;
         const layers = interactiveLayers();
         const feature = layers.length ? instance.queryRenderedFeatures(event.point, { layers })[0] : undefined;
         const rawId = feature?.properties?.mapObjectId ?? feature?.id;
@@ -145,7 +149,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, safetyReports
       element.addEventListener("click", () => instance.flyTo({ center: landmark.coordinates, zoom: Math.max(instance.getZoom(), 15.5), essential: true }));
       return new maplibregl.Marker({ element, anchor: "left", offset: [9, -2] }).setLngLat(landmark.coordinates).addTo(instance);
     });
-    return () => { markers.current.forEach((marker) => marker.remove()); markers.current = []; landmarkMarkers.current.forEach((marker) => marker.remove()); landmarkMarkers.current = []; safetyMarkers.current.forEach((marker) => marker.remove()); safetyMarkers.current = []; userMarker.current?.remove(); userMarker.current = null; installBuildingHandlers.current = null; buildingHandlersAttached.current = false; instance.remove(); map.current = null; };
+    return () => { markers.current.forEach((marker) => marker.remove()); markers.current = []; crimeMarkers.current.forEach((marker) => marker.remove()); crimeMarkers.current = []; landmarkMarkers.current.forEach((marker) => marker.remove()); landmarkMarkers.current = []; safetyMarkers.current.forEach((marker) => marker.remove()); safetyMarkers.current = []; userMarker.current?.remove(); userMarker.current = null; installBuildingHandlers.current = null; buildingHandlersAttached.current = false; instance.remove(); map.current = null; };
     // One map instance survives filtering and date changes.
   }, [mapKey]);
 
@@ -202,6 +206,44 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, safetyReports
       return new maplibregl.Marker({ element, anchor: "center" }).setLngLat(group.coordinates).addTo(map.current!);
     });
   }, [groups]);
+
+  useEffect(() => {
+    const instance = map.current;
+    crimeMarkers.current.forEach((marker) => marker.remove());
+    crimeMarkers.current = [];
+    if (!instance) return;
+    crimeMarkers.current = crimeGroups.map((group) => {
+      const counts = new Map<CrimeCategory, number>();
+      group.incidents.forEach((incident) => counts.set(incident.category, (counts.get(incident.category) || 0) + 1));
+      const category = [...counts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] || "theft";
+      const element = document.createElement("button");
+      element.type = "button";
+      element.className = "crime-map-marker-anchor";
+      element.dataset.crimeGroupId = group.id;
+      element.setAttribute("aria-label", `${group.incidents.length} official police blotter ${group.incidents.length === 1 ? "entry" : "entries"} at ${group.name}; select to review`);
+      element.title = `${group.incidents.length} UWPD blotter ${group.incidents.length === 1 ? "entry" : "entries"} · ${group.name}`;
+      const visual = document.createElement("span");
+      visual.className = `crime-map-marker crime-category-${category}`;
+      const icon = document.createElement("span");
+      icon.className = "crime-map-marker-symbol";
+      icon.textContent = crimeCategoryInfo[category].symbol;
+      visual.append(icon);
+      if (group.incidents.length > 1) {
+        const count = document.createElement("span");
+        count.className = "crime-map-marker-count";
+        count.textContent = String(group.incidents.length);
+        visual.append(count);
+      }
+      element.append(visual);
+      element.addEventListener("click", () => onSelectCrimeGroupRef.current(group.id));
+      return new maplibregl.Marker({ element, anchor: "center" }).setLngLat(group.coordinates).addTo(instance);
+    });
+    return () => { crimeMarkers.current.forEach((marker) => marker.remove()); crimeMarkers.current = []; };
+  }, [crimeGroups]);
+
+  useEffect(() => {
+    crimeMarkers.current.forEach((marker) => marker.getElement().classList.toggle("is-selected", marker.getElement().dataset.crimeGroupId === selectedCrimeGroupId));
+  }, [crimeGroups, selectedCrimeGroupId]);
 
   useEffect(() => {
     markers.current.forEach((marker) => {
@@ -265,9 +307,10 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, safetyReports
     else instance.easeTo({ pitch: 0, bearing: 0, duration: 550 });
   }, [angled]);
   useEffect(() => {
-    if (!fitSignal || !map.current || groups.length === 0) return;
+    const points = [...groups.map(({ coordinates }) => coordinates), ...crimeGroups.map(({ coordinates }) => coordinates)];
+    if (!fitSignal || !map.current || points.length === 0) return;
     const bounds = new maplibregl.LngLatBounds();
-    groups.forEach((group) => bounds.extend(group.coordinates));
+    points.forEach((coordinates) => bounds.extend(coordinates));
     map.current.fitBounds(bounds, { padding: 70, maxZoom: 15, duration: 650 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitSignal]);

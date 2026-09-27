@@ -1,5 +1,43 @@
 import { expect, test } from "@playwright/test";
 
+test("official blotter mode groups exact campus places and keeps generic residence locations off-map", async ({ page }, testInfo) => {
+  const fixture = {
+    fetchedAt: "2026-09-26T17:00:00.000Z",
+    windowDays: 30,
+    windowStart: "2026-08-28",
+    windowEnd: "2026-09-26",
+    latestArticleDate: "2026-09-24",
+    partial: false,
+    incidents: [
+      { id: "2026-09-20:2", incidentDate: "2026-09-19", occurredAt: "2026-09-19T17:43:00.000Z", timeLabel: "12:43 pm", incidentType: "Theft/Larceny", category: "theft", locationLabel: "Nicholas Recreation Center", buildingId: "0564", buildingName: "Nicholas Recreation Center", coordinates: [-89.4045, 43.071], summary: "A theft or larceny report was logged.", source: "uwpd-official", sourceUrl: "https://uwpd.wisc.edu/daily-blotter/2026-09-20/" },
+      { id: "2026-09-20:1", incidentDate: "2026-09-19", occurredAt: "2026-09-19T16:11:00.000Z", timeLabel: "11:11 am", incidentType: "Fraud", category: "fraud", locationLabel: "Residence Hall", buildingId: null, buildingName: null, coordinates: null, summary: "Personal details omitted.", source: "uwpd-official", sourceUrl: "https://uwpd.wisc.edu/daily-blotter/2026-09-20/" },
+      { id: "2026-09-20:3", incidentDate: "2026-09-19", occurredAt: "2026-09-19T19:00:00.000Z", timeLabel: "2:00 pm", incidentType: "Fraud", category: "fraud", locationLabel: "Nicholas Recreation Center", buildingId: "0564", buildingName: "Nicholas Recreation Center", coordinates: [-89.4045, 43.071], summary: "Personal details omitted.", source: "uwpd-official", sourceUrl: "https://uwpd.wisc.edu/daily-blotter/2026-09-20/" },
+    ],
+  };
+  await page.route("**/api/safety/crimes?days=*", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(fixture) }));
+  await page.goto("/?date=2026-09-26&mode=crime");
+
+  const marker = page.getByRole("button", { name: /2 official police blotter entries at Nicholas Recreation Center/i });
+  await expect(marker).toBeVisible();
+  if (testInfo.project.name === "mobile") {
+    await page.getByRole("button", { name: "Expand event list" }).click();
+    await expect(page.locator(".crime-sheet-location").filter({ hasText: "Residence Hall" })).toBeVisible();
+    await page.getByRole("button", { name: "Collapse event list" }).click();
+  }
+  else await expect(page.locator(".crime-unmapped-location").filter({ hasText: "Residence Hall" })).toBeVisible();
+  await expect(page.getByText("Underage Alcohol Violation", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: "Read original entry" }).first()).toHaveAttribute("href", "https://uwpd.wisc.edu/daily-blotter/2026-09-20/");
+
+  await marker.click();
+  const surface = testInfo.project.name === "mobile" ? page.locator(".mobile-sheet") : page.locator(".discovery-panel");
+  if (testInfo.project.name === "mobile") await expect(surface.locator(".crime-sheet-topline")).toContainText("2 separate entries");
+  else await expect(surface.locator(".crime-venue-banner")).toContainText("2 separate blotter entries");
+  await expect(surface.getByText("Theft/Larceny", { exact: true })).toBeVisible();
+  await expect(surface.getByText("Fraud", { exact: true }).first()).toBeVisible();
+  await expect(surface.getByText(testInfo.project.name === "mobile" ? /not live alerts or findings of guilt/i : /not a finding of guilt/i)).toBeVisible();
+  await expect(page).toHaveURL(/mode=crime/);
+});
+
 test("real calendar, filters, source and date navigation", async ({ page }, testInfo) => {
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));

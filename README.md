@@ -25,7 +25,9 @@ Building geometry is a checked-in campus map snapshot. It includes full building
 
 ## Campus safety
 
-The safety toolbox prioritizes UW's own emergency, alert, police, SAFEwalk, and facilities channels. Immediate emergencies should go to 911. WiscAlerts and BadgerSAFE are the official notification systems; Badger Live does not send push, text, or emergency notifications. UWPD incident reports and event/Clery logs are linked at their original sources and are not copied into the map: the public daily log/feed can contain sensitive, person-specific narratives, and the campus-alert site does not expose a stable location-bearing feed suitable for safe third-party mapping.
+The safety toolbox prioritizes UW's own emergency, alert, police, SAFEwalk, and facilities channels. Immediate emergencies should go to 911. WiscAlerts and BadgerSAFE are the official notification systems; Badger Live does not send push, text, or emergency notifications.
+
+Crime mode reads the official UWPD daily-blotter RSS archive and dated public pages on the server, with 15-minute upstream revalidation. It includes only an explicit allowlist of report types; medical, alcohol, traffic-accident, vague “Other,” and entries whose narratives indicate sexual, domestic-violence, or stalking contexts are omitted. Summaries omit source narratives and personal/payment details; each entry links to the original UWPD page. Pins are placed only when the reported location exactly matches a named campus building in the campus directory. General “Residence Hall,” redacted, street, and other non-building locations remain list-only. A pin identifies the named building, not the precise incident spot. Blotter entries are not findings of guilt, complete crime statistics, or live alerts; the latest archive date is shown in the interface.
 
 Structured environmental reports are stored only in local Supabase by default. Intake has no free-text, photo, identity, or device-location field; location is snapped to a verified campus building. Submissions remain private and never appear on the public map until a human reviewer approves them. Community-confirmed status requires at least two distinct reports plus an explicit reviewer decision and refers only to an environmental condition—not a crime. Reports expire after 14 days; older observations are marked outdated and removed from active map pins. The queue currently has no assigned reviewer.
 
@@ -41,4 +43,4 @@ Run `bun run lint`, `bun run typecheck`, `bun run test`, `bun run build`, and `b
 
 ## Scope
 
-Supabase remains local-only: it stores refreshed UW event-day cache snapshots and the private, moderation-gated environmental report queue. No AI summaries, app-delivered push alerts, or incident-log scraping are implemented.
+Supabase remains local-only: it stores refreshed UW event-day cache snapshots and the private, moderation-gated environmental report queue. No AI summaries or app-delivered push alerts are implemented.
