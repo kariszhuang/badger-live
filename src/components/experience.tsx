@@ -137,25 +137,6 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
   }, [mode, crimeWindow, crimeRefresh]);
 
   useEffect(() => {
-    if (mode !== "crime") return;
-    const controller = new AbortController();
-    const timer = window.setTimeout(() => {
-      setCrimeLoading(true);
-      setCrimeError("");
-      void fetch(`/api/safety/crimes?days=${crimeWindow}`, { signal: controller.signal })
-        .then(async (response) => {
-          const result = await response.json() as CrimeResponse;
-          if (!response.ok || !Array.isArray(result.incidents)) throw new Error(result.error || "UWPD blotter is unavailable");
-          return result;
-        })
-        .then(setCrimeData)
-        .catch((reason) => { if (reason instanceof Error && reason.name !== "AbortError") setCrimeError(reason.message || "UWPD blotter is unavailable"); })
-        .finally(() => { if (!controller.signal.aborted) setCrimeLoading(false); });
-    }, 0);
-    return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [mode, crimeWindow, crimeRefresh]);
-
-  useEffect(() => {
     const timer = window.setInterval(() => setMinuteTick(Date.now()), 60_000);
     return () => window.clearInterval(timer);
   }, []);
@@ -283,7 +264,6 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
     setSelectedGroupId(id);
     setSelectedId(null);
     setSheet("half");
-    setFocus([...group.coordinates]);
     const card = document.getElementById(`event-${group.events[0].officialId}`);
     card?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   };
@@ -338,18 +318,18 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
 
   const locate = () => {
     if (!window.isSecureContext) {
-      setLocationMessage({ kind: "error", text: "Location needs a secure connection. Open Badger Live over HTTPS; plain HTTP on a phone’s LAN address cannot request location." });
+      setLocationMessage({ kind: "error", text: "Location needs HTTPS on this connection." });
       return;
     }
     const geolocation = navigator.geolocation;
-    if (!geolocation) { setLocationMessage({ kind: "error", text: "This browser does not support location access." }); return; }
+    if (!geolocation) { setLocationMessage({ kind: "error", text: "Location isn't available in this browser." }); return; }
     if (locationRequest.current) return;
 
     locationRequest.current = true;
     setLocating(true);
     setLocationMessage({
       kind: "loading",
-      text: userLocation ? "Updating your location; your current dot stays visible." : "Checking browser permission and finding your location…",
+      text: userLocation ? "Updating location…" : "Finding your location…",
     });
     let settled = false;
     let fallbackAttempted = false;
@@ -364,29 +344,26 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
       if (settled) return;
       const coordinates: [number, number] = [position.coords.longitude, position.coords.latitude];
       if (!Number.isFinite(coordinates[0]) || !Number.isFinite(coordinates[1]) || Math.abs(coordinates[0]) > 180 || Math.abs(coordinates[1]) > 90) {
-        setLocationMessage({ kind: "error", text: "Your device returned an invalid position. Check Location Services and try again." });
+        setLocationMessage({ kind: "error", text: "Couldn't get your location. Try again." });
         finish();
         return;
       }
       if (!isWithinCampusMapBounds(coordinates)) {
         setUserLocation(null);
-        setLocationMessage({ kind: "warning", text: "Your location is outside the current campus map area, so it isn’t shown." });
+        setLocationMessage({ kind: "warning", text: "You're outside the campus map." });
         finish();
         return;
       }
       setUserLocation(coordinates);
       setFocus(coordinates);
-      setLocationMessage({
-        kind: "success",
-        text: fallbackAttempted ? "Approximate location found; the blue dot marks your position." : "Location updated; the blue dot marks your position.",
-      });
+      setLocationMessage({ kind: "success", text: "Location found." });
       finish();
     };
     const showError = (error: GeolocationPositionError) => {
       if (settled) return;
       if (!fallbackAttempted && (error.code === error.POSITION_UNAVAILABLE || error.code === error.TIMEOUT)) {
         fallbackAttempted = true;
-        setLocationMessage({ kind: "loading", text: "GPS is taking a while; trying an approximate location…" });
+        setLocationMessage({ kind: "loading", text: "Still looking for your location…" });
         try {
           geolocation.getCurrentPosition(showPosition, showError, {
             enableHighAccuracy: false,
@@ -395,20 +372,16 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
           });
           return;
         } catch {
-          setLocationMessage({ kind: "error", text: "The browser couldn’t retry location. Check site permissions and device Location Services." });
+          setLocationMessage({ kind: "error", text: "Couldn't get your location. Try again." });
           finish();
           return;
         }
       }
 
       const message = error.code === error.PERMISSION_DENIED
-        ? "Location access was denied. Allow it for this site in your browser settings, then tap Locate me again."
-        : error.code === error.POSITION_UNAVAILABLE
-          ? "Your device couldn’t determine a location. Check Location Services and try again."
-          : error.code === error.TIMEOUT
-            ? "Location took too long. Check GPS or network access, then tap Locate me to retry."
-            : "Location is unavailable right now. Check browser and device location settings, then try again.";
-      setLocationMessage({ kind: "error", text: userLocation ? `${message} Your last dot remains visible and may be out of date.` : message });
+        ? "Location access is off. Check your browser settings."
+        : "Couldn't get your location. Try again.";
+      setLocationMessage({ kind: "error", text: message });
       finish();
     };
 
@@ -419,7 +392,7 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
         maximumAge: 0,
       });
     } catch {
-      setLocationMessage({ kind: "error", text: "The browser couldn’t start location access. Check site permissions and try again." });
+      setLocationMessage({ kind: "error", text: "Couldn't get your location. Try again." });
       finish();
     }
   };

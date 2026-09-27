@@ -221,7 +221,7 @@
   .toolbar-list-button .toolbar-list-count{min-width:18px;height:18px;display:grid;place-items:center;overflow:hidden;padding:0 3px;border-radius:999px;background:#f2f0eb;color:#555d56;font-size:10px;font-variant-numeric:tabular-nums;font-weight:850;line-height:1}
   .toolbar-list-button.is-open .toolbar-list-count{background:#f3e4df;color:#922b25}
   .experience:not(.has-open-sheet) .map-tools{bottom:calc(env(safe-area-inset-bottom) + 12px)}
-  .experience:not(.has-open-sheet) .map-notice{bottom:calc(env(safe-area-inset-bottom) + 66px)}
+  .experience:not(.has-open-sheet) .map-notice{top:calc(280px + env(safe-area-inset-top));bottom:auto}
   .experience:not(.has-open-sheet) .maplibregl-control-container .maplibregl-ctrl-bottom-right{bottom:calc(env(safe-area-inset-bottom) + 8px)}
   .experience:not(.has-open-sheet) .building-map-legend{bottom:calc(env(safe-area-inset-bottom) + 58px)}
   .mobile-sheet.sheet-closed{display:none}
@@ -240,4 +240,4 @@
 .map-notice--success{border-color:#d5e3cf;background:#f2f8f0;color:#365b37}
 .map-notice--warning{border-color:#ead6a9;background:#fff8e9;color:#725319}
 .map-notice--error{border-color:#efc9c3;background:#fff4f2;color:#7b2924}
-@media(max-width:767px){.map-notice{top:calc(280px + env(safe-area-inset-top));right:14px;bottom:auto;left:14px;max-width:none}}
+@media(max-width:767px){.map-notice{top:calc(280px + env(safe-area-inset-top));right:14px;bottom:auto;left:14px;max-width:min(320px,calc(100vw - 28px))}}
