@@ -130,11 +130,13 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
       }
     });
     map.current = instance;
+    const mountedCrimeRoots = crimeIconRoots.current;
+    const mountedSafetyRoots = safetyIconRoots.current;
     return () => {
       markers.current.forEach((marker) => marker.remove()); markers.current = [];
-      unmountRoots(crimeIconRoots.current);
+      unmountRoots(mountedCrimeRoots);
       crimeMarkers.current.forEach((marker) => marker.remove()); crimeMarkers.current = [];
-      unmountRoots(safetyIconRoots.current);
+      unmountRoots(mountedSafetyRoots);
       safetyMarkers.current.forEach((marker) => marker.remove()); safetyMarkers.current = [];
       userMarker.current?.remove(); userMarker.current = null;
       installBuildingHandlers.current = null; buildingHandlersAttached.current = false;
@@ -199,7 +201,8 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
 
   useEffect(() => {
     const instance = map.current;
-    unmountRoots(crimeIconRoots.current);
+    const roots = crimeIconRoots.current;
+    unmountRoots(roots);
     crimeMarkers.current.forEach((marker) => marker.remove());
     crimeMarkers.current = [];
     if (!instance) return;
@@ -219,7 +222,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
       icon.className = "crime-map-marker-symbol";
       const iconRoot = createRoot(icon);
       iconRoot.render(<CrimeCategoryIcon category={category} size={17} />);
-      crimeIconRoots.current.push(iconRoot);
+      roots.push(iconRoot);
       visual.append(icon);
       visual.classList.toggle("has-count", group.incidents.length > 1);
       if (group.incidents.length > 1) {
@@ -233,7 +236,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
       return new maplibregl.Marker({ element, anchor: "center" }).setLngLat(group.coordinates).addTo(instance);
     });
     return () => {
-      unmountRoots(crimeIconRoots.current);
+      unmountRoots(roots);
       crimeMarkers.current.forEach((marker) => marker.remove()); crimeMarkers.current = [];
     };
   }, [crimeGroups]);
@@ -252,7 +255,8 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
 
   useEffect(() => {
     const instance = map.current;
-    unmountRoots(safetyIconRoots.current);
+    const roots = safetyIconRoots.current;
+    unmountRoots(roots);
     safetyMarkers.current.forEach((marker) => marker.remove());
     safetyMarkers.current = [];
     if (!instance) return;
@@ -269,7 +273,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
         symbol.className = "safety-map-marker-symbol";
         const iconRoot = createRoot(symbol);
         iconRoot.render(<SafetyCategoryIcon category={report.category} size={17} />);
-        safetyIconRoots.current.push(iconRoot);
+        roots.push(iconRoot);
         element.append(symbol);
         if (report.reportCount > 1) {
           const count = document.createElement("span");
@@ -281,7 +285,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
         return new maplibregl.Marker({ element, anchor: "center" }).setLngLat(report.coordinates).addTo(instance);
       });
     return () => {
-      unmountRoots(safetyIconRoots.current);
+      unmountRoots(roots);
       safetyMarkers.current.forEach((marker) => marker.remove()); safetyMarkers.current = [];
     };
   }, [safetyReports]);

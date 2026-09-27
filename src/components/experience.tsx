@@ -9,6 +9,7 @@ import { availableCategoriesForSearch, groupVenues, type CampusEvent, type Filte
 import { crimeCategories, filterCrimeIncidents, groupCrimeLocations, groupUnmappedCrimeLocations, type CrimeCategory, type OfficialCrimeIncident } from "@/lib/crime-model";
 import type { CommunitySafetyReport } from "@/lib/safety";
 import { parseCampusBuildings, type CampusBuilding, type CampusBuildings } from "@/lib/campus-buildings";
+import { isWithinCampusMapBounds } from "@/lib/campus-map-bounds";
 import { campusEventsAtBuilding, googleMapsDirectionsUrl } from "@/lib/campus-building-events";
 import type { EventsResult } from "@/lib/uw-events-api";
 import { readClientEventDay, writeClientEventDay, type ClientEventDayCache } from "@/lib/client-event-day-cache";
@@ -24,6 +25,7 @@ type DayResponse = EventsResult & { date: string };
 type CrimeResponse = { incidents: OfficialCrimeIncident[]; fetchedAt: string; windowDays: 14 | 30; windowStart: string; windowEnd: string; latestArticleDate: string | null; partial: boolean; error?: string };
 type SheetLevel = "closed" | "half" | "full";
 type SafetyStartView = "official" | "community" | "report";
+type LocationMessage = { kind: "loading" | "success" | "warning" | "error"; text: string };
 
 export function Experience({ initialDate, initial, initialEvent, initialMode = "events", mapKey }: { initialDate: string; initial: EventsResult | null; initialEvent?: string; initialMode?: DiscoveryMode; mapKey: string }) {
   const [date, setDate] = useState(initialDate);
@@ -53,7 +55,7 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
   const [minuteTick, setMinuteTick] = useState(0);
   const [focus, setFocus] = useState<[number, number] | null>(null);
   const [userLocation, setUserLocation] = useState<[number, number] | null>(null);
-  const [locateError, setLocateError] = useState("");
+  const [locationMessage, setLocationMessage] = useState<LocationMessage | null>(null);
   const [locating, setLocating] = useState(false);
   const locationRequest = useRef(false);
   const [copied, setCopied] = useState(false);
@@ -340,63 +342,89 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
   };
 
   const locate = () => {
-    setLocateError("");
     if (!window.isSecureContext) {
-      setLocateError("Location requires HTTPS from another device on your local network; this page is HTTP. Open a trusted HTTPS URL to enable location access.");
+      setLocationMessage({ kind: "error", text: "Location needs a secure connection. Open Badger Live over HTTPS; plain HTTP on a phone’s LAN address cannot request location." });
       return;
     }
     const geolocation = navigator.geolocation;
-    if (!geolocation) { setLocateError("Location is unavailable in this browser."); return; }
+    if (!geolocation) { setLocationMessage({ kind: "error", text: "This browser does not support location access." }); return; }
     if (locationRequest.current) return;
 
     locationRequest.current = true;
     setLocating(true);
-    setLocateError("Requesting location permission and a fresh device position…");
-    setUserLocation(null);
+    setLocationMessage({
+      kind: "loading",
+      text: userLocation ? "Updating your location; your current dot stays visible." : "Checking browser permission and finding your location…",
+    });
+    let settled = false;
+    let fallbackAttempted = false;
 
     const finish = () => {
+      if (settled) return;
+      settled = true;
       locationRequest.current = false;
       setLocating(false);
     };
     const showPosition = (position: GeolocationPosition) => {
+      if (settled) return;
       const coordinates: [number, number] = [position.coords.longitude, position.coords.latitude];
+      if (!Number.isFinite(coordinates[0]) || !Number.isFinite(coordinates[1]) || Math.abs(coordinates[0]) > 180 || Math.abs(coordinates[1]) > 90) {
+        setLocationMessage({ kind: "error", text: "Your device returned an invalid position. Check Location Services and try again." });
+        finish();
+        return;
+      }
+      if (!isWithinCampusMapBounds(coordinates)) {
+        setUserLocation(null);
+        setLocationMessage({ kind: "warning", text: "Your location is outside the current campus map area, so it isn’t shown." });
+        finish();
+        return;
+      }
       setUserLocation(coordinates);
       setFocus(coordinates);
-      setLocateError("");
+      setLocationMessage({
+        kind: "success",
+        text: fallbackAttempted ? "Approximate location found; the blue dot marks your position." : "Location updated; the blue dot marks your position.",
+      });
       finish();
     };
-    const showError = (error: GeolocationPositionError, approximateAttempted = false) => {
-      if (!approximateAttempted && (error.code === error.POSITION_UNAVAILABLE || error.code === error.TIMEOUT)) {
-        setLocateError("A precise location is taking too long; trying an approximate position…");
+    const showError = (error: GeolocationPositionError) => {
+      if (settled) return;
+      if (!fallbackAttempted && (error.code === error.POSITION_UNAVAILABLE || error.code === error.TIMEOUT)) {
+        fallbackAttempted = true;
+        setLocationMessage({ kind: "loading", text: "GPS is taking a while; trying an approximate location…" });
         try {
-          geolocation.getCurrentPosition(showPosition, (fallbackError) => showError(fallbackError, true), {
+          geolocation.getCurrentPosition(showPosition, showError, {
             enableHighAccuracy: false,
-            timeout: 12000,
-            maximumAge: 0,
+            timeout: 10000,
+            maximumAge: 15000,
           });
           return;
-        } catch { /* Fall through to the actionable location error. */ }
+        } catch {
+          setLocationMessage({ kind: "error", text: "The browser couldn’t retry location. Check site permissions and device Location Services." });
+          finish();
+          return;
+        }
       }
 
       const message = error.code === error.PERMISSION_DENIED
-        ? "Location permission was denied for this site. Enable Location in your browser’s site settings, then tap Locate me again."
+        ? "Location access was denied. Allow it for this site in your browser settings, then tap Locate me again."
         : error.code === error.POSITION_UNAVAILABLE
-          ? "Your device couldn’t determine a location. Check device location services and try again."
+          ? "Your device couldn’t determine a location. Check Location Services and try again."
           : error.code === error.TIMEOUT
             ? "Location took too long. Check GPS or network access, then tap Locate me to retry."
             : "Location is unavailable right now. Check browser and device location settings, then try again.";
-      setLocateError(message);
+      setLocationMessage({ kind: "error", text: userLocation ? `${message} Your last dot remains visible and may be out of date.` : message });
       finish();
     };
 
     try {
       geolocation.getCurrentPosition(showPosition, showError, {
         enableHighAccuracy: true,
-        timeout: 12000,
+        timeout: 8000,
         maximumAge: 0,
       });
     } catch {
-      setLocateError("Location is unavailable right now. Check browser and device location settings, then try again.");
+      setLocationMessage({ kind: "error", text: "The browser couldn’t start location access. Check site permissions and try again." });
       finish();
     }
   };
@@ -414,7 +442,7 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
         <button aria-label="Back to campus" title="Back to campus" onClick={() => setCampusSignal((n) => n + 1)}><Compass size={19} /></button>
         <button aria-label="Safety alerts and resources" title="Safety alerts and resources" onClick={() => openSafetyCenter()}><ShieldAlert size={19} /></button>
       </div>
-      {locateError && <div className="map-notice" role="status">{locateError}<button aria-label="Dismiss notice" onClick={() => setLocateError("")}><X size={14} /></button></div>}
+      {locationMessage && <div className={`map-notice map-notice--${locationMessage.kind}`} role={locationMessage.kind === "error" ? "alert" : "status"} aria-live={locationMessage.kind === "error" ? "assertive" : "polite"}><span className="map-notice-copy">{locationMessage.text}</span><button className="map-notice-dismiss" aria-label="Dismiss location message" onClick={() => setLocationMessage(null)}><X size={16} /></button></div>}
     </section>
 
     <section className="discovery-panel" aria-label={mode === "crime" ? "Official police blotter discovery" : "Event discovery"}>

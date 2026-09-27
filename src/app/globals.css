@@ -233,3 +233,11 @@
 @media(max-width:360px){.brand-symbol.brand-image{width:27px;height:27px}}
 .crime-report-summary{font-size:11px;line-height:1.55;overflow-wrap:anywhere}
 @media(max-width:767px){.crime-report-summary{font-size:12px;line-height:1.55}}
+.map-notice{top:72px;right:80px;bottom:auto;max-width:min(360px,calc(100% - 130px));min-height:52px;align-items:center;border:1px solid #e2e4de;color:#455046;line-height:1.45}
+.map-notice-copy{flex:1}
+.map-notice-dismiss{width:40px;min-width:40px;height:40px;display:grid;place-items:center;flex:none;border-radius:10px;color:#69706a}
+.map-notice-dismiss:hover{background:#f3f2ef;color:#303a35}
+.map-notice--success{border-color:#d5e3cf;background:#f2f8f0;color:#365b37}
+.map-notice--warning{border-color:#ead6a9;background:#fff8e9;color:#725319}
+.map-notice--error{border-color:#efc9c3;background:#fff4f2;color:#7b2924}
+@media(max-width:767px){.map-notice{top:calc(280px + env(safe-area-inset-top));right:14px;bottom:auto;left:14px;max-width:none}}

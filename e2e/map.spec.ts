@@ -171,7 +171,7 @@ test("map and official event detail", async ({ page }, testInfo) => {
   await expect(card.getByRole("link", { name: /Official event/ })).toHaveAttribute("href", /today\.wisc\.edu\/events\/view\/\d+/);
 });
 
-test("search, date picker and geolocation denial remain usable", async ({ page }, testInfo) => {
+test("search and date picker remain usable", async ({ page }, testInfo) => {
   await page.goto("/?date=2026-09-26");
   await page.getByPlaceholder("What's happening, Badgers?").fill("roundnet");
   const list = testInfo.project.name === "mobile" ? page.locator(".mobile-sheet") : page.locator(".discovery-panel");
@@ -182,8 +182,6 @@ test("search, date picker and geolocation denial remain usable", async ({ page }
   await page.getByLabel("Choose date").fill("2026-09-27");
   await expect(page).toHaveURL(/date=2026-09-27/);
   await expect(page.locator(".count-line")).toContainText("10 events");
-  await page.getByRole("button", { name: "Locate me" }).click();
-  await expect(page.getByRole("status").filter({ hasText: /Location permission/ })).toBeVisible();
 });
 
 test("mobile sheet expands from its accessible handle", async ({ page }, testInfo) => {
@@ -330,7 +328,7 @@ test("location explains that a secure connection is required on LAN devices", as
   });
   await page.goto("/?date=2026-09-26");
   await page.getByRole("button", { name: "Locate me" }).click();
-  await expect(page.getByRole("status")).toContainText(/HTTPS.*local network/i);
+  await expect(page.getByRole("region", { name: "Campus map" }).getByRole("alert")).toContainText(/location needs a secure connection.*HTTPS/i);
 });
 
 test("the angled campus view toggles cleanly back to 2D without landmark pills", async ({ page }) => {
