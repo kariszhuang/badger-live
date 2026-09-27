@@ -137,8 +137,10 @@
   .map-panel{position:absolute;inset:0;height:100%;overflow:hidden}
   .discovery-panel{inset:0 0 auto;width:100%;height:auto;max-height:none;overflow:visible;border:0;border-radius:0;background:transparent;box-shadow:none;pointer-events:none;backdrop-filter:none}
   .discovery-header{pointer-events:auto;padding:calc(8px + env(safe-area-inset-top)) 12px 10px;border:0;border-radius:0;background:linear-gradient(180deg,#f8f7f3 0%,#f8f7f3 88%,#f8f7f300 100%)}
-  .toolbar-brand-line{gap:5px;margin:0 0 7px}
-  .toolbar-brand-line .brand-row{gap:6px}
+  .toolbar-brand-line{display:grid;grid-template-columns:minmax(0,1fr) 52px;grid-template-areas:"brand list" "modes modes";align-items:center;gap:7px 8px;margin:0 0 9px}
+  .toolbar-brand-line .brand-row{grid-area:brand;gap:6px}
+  .toolbar-brand-line .mode-switcher{grid-area:modes;width:100%;margin:0}
+  .toolbar-brand-line .toolbar-list-button{grid-area:list}
   .toolbar-brand-line .brand-symbol{width:25px;height:25px;border-radius:7px}
   .toolbar-brand-line .brand-symbol-inner{width:12px;height:12px}
   .toolbar-brand-line .brand-name{font-size:17px;letter-spacing:-.06em}
