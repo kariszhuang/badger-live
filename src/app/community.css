@@ -29,3 +29,9 @@
 .community-selected-location{display:flex;gap:9px;align-items:center;margin:0;padding:10px 12px;border:1px solid #cae4d1;border-radius:11px;background:#f0f8f0;color:#53705b;font-size:11px;font-weight:650}.community-selected-location>span:first-child{width:25px;height:25px;display:grid;place-items:center;flex:none;border-radius:50%;background:#d9efdf;color:#27704a}.community-selected-location>span:last-child{display:grid;gap:1px}.community-selected-location strong{color:#23593c;font-size:13px}
 .community-composer-form>.report-primary-button{min-height:48px;font-size:14px}.community-place-results button{min-height:39px;font-size:13px}
 @media(max-width:767px){.community-composer-dialog{padding:20px 16px;max-height:calc(100dvh - 16px - env(safe-area-inset-top))}.community-entry-modes button{font-size:12px}.community-kind-grid button{font-size:10px}}
+
+.community-pulse-items button .community-pulse-copy{min-width:0;display:flex;flex:1;flex-direction:column;align-items:flex-start;gap:2px;overflow:hidden;white-space:normal;text-overflow:clip}
+.community-pulse-copy strong,.community-pulse-copy small{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;line-height:1.2}
+.community-pulse-copy strong{font-size:10px;font-weight:800}
+.community-pulse-items button .community-pulse-copy small{color:#8b8177;font-size:8px;font-weight:600}
+.community-pulse-items button em{flex:none;color:#a3653a;font-size:7px;font-style:normal;font-weight:850}

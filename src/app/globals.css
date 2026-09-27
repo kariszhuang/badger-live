@@ -280,6 +280,36 @@
 .report-place-status{margin:7px 2px 0;color:#81887f;font-size:10px;line-height:1.4}
 @media(max-width:767px){.report-dialog,.assistant-dialog,.report-details-dialog{translate:none}}
 
+@media(min-width:768px){
+  .discovery-panel{width:min(430px,max(382px,33vw))}
+  .discovery-header{padding:17px 20px 13px}
+  .toolbar-brand-line{display:flex;flex-direction:column;align-items:stretch;gap:13px;margin-bottom:14px}
+  .toolbar-brand-line .brand-row{width:100%}
+  .toolbar-brand-line .brand-caption{margin-left:auto}
+  .mode-switcher{width:100%;padding:4px;border-radius:14px}
+  .mode-switcher button{min-height:40px;font-size:12px}
+  .mode-hazards .community-pulse{margin:11px 18px 0;padding:14px;border-color:#ead6c4;border-radius:17px;background:#fff9f2}
+  .mode-hazards .community-pulse-heading{display:flex;flex-direction:column;align-items:flex-start;gap:4px;margin-bottom:11px}
+  .mode-hazards .community-pulse-heading strong{font-size:14px;letter-spacing:-.025em}
+  .mode-hazards .community-pulse-items{gap:7px}
+  .mode-hazards .community-pulse-items button{min-height:51px;gap:8px;padding:7px 9px;border-color:#eadccb;border-radius:11px}
+  .mode-hazards .community-pulse-items button svg{width:18px;height:18px}
+  .mode-hazards .community-pulse-items button em{align-self:flex-start;margin-top:2px}
+  .mode-hazards .events-heading{align-items:center;padding:20px 20px 0}
+  .mode-hazards .events-heading h2{font-size:22px}
+  .mode-hazards .events-heading>svg{color:#aa6440}
+  .mode-hazards .count-line{padding:0 20px;margin:9px 0 15px;font-size:11px;color:#59645b}
+  .mode-hazards .count-line .cache-note{margin-top:3px;line-height:1.4}
+  .mode-hazards .hazard-events-scroll{padding:0 13px 34px 18px}
+  .mode-hazards .hazard-events-scroll .community-feed-heading{display:none}
+  .mode-hazards .hazard-events-scroll .community-feed{margin-right:0;padding:0;border:0}
+  .mode-hazards .hazard-events-scroll .community-update-card{margin:0 0 9px;padding:12px 13px;border-radius:14px}
+  .mode-hazards .hazard-events-scroll .community-update-card>p{display:-webkit-box;overflow:hidden;-webkit-box-orient:vertical;-webkit-line-clamp:2;margin:9px 0 7px;line-height:1.4}
+  .mode-hazards .hazard-events-scroll .community-update-icon{width:34px;height:34px}
+  .mode-hazards .hazard-events-scroll .community-update-copy strong{font-size:12px}
+  .mode-hazards .hazard-events-scroll .community-update-footer{margin-top:7px;padding-top:6px}
+}
+
 .walking-route-dialog{width:min(520px,calc(100vw - 24px));max-width:520px;max-height:min(88dvh,760px);display:flex;flex-direction:column;gap:17px;overflow-y:auto;padding:22px;border:1px solid #e6e5df;border-radius:23px;background:#fffefa;box-shadow:0 26px 80px #17241d38}
 .walking-route-header{gap:7px;padding-right:30px}
 .walking-route-header h2{margin:0;color:#252c27;font-size:25px;font-weight:820;letter-spacing:-.055em;line-height:1.08}

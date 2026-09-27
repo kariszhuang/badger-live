@@ -10,7 +10,7 @@ import { crimeCategories, filterCrimeIncidents, groupCrimeLocations, groupUnmapp
 import type { HazardReport } from "@/lib/report/types";
 import { useHazardUpdates } from "@/lib/report/use-hazard-updates";
 import { useCommunityUpdates } from "@/lib/community/use-community-updates";
-import type { CommunityUpdate } from "@/lib/community/types";
+import { communityKindLabels, type CommunityUpdate } from "@/lib/community/types";
 import { CommunityIcon } from "./community/community-icon";
 import { CommunityUpdateCard } from "./community/community-update-card";
 import { CommunityComposer } from "./community/community-composer";
@@ -521,7 +521,7 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
       {locationMessage && <div className={`map-notice map-notice--${locationMessage.kind}`} role={locationMessage.kind === "error" ? "alert" : "status"} aria-live={locationMessage.kind === "error" ? "assertive" : "polite"}><span className="map-notice-copy">{locationMessage.text}</span><button className="map-notice-dismiss" aria-label="Dismiss location message" onClick={() => setLocationMessage(null)}><X size={16} /></button></div>}
     </section>
 
-    <section className="discovery-panel" aria-label={mode === "crime" ? "Crime reports" : mode === "hazards" ? "Hazard reports" : "Event discovery"}>
+    <section className={`discovery-panel mode-${mode}`} aria-label={mode === "crime" ? "Crime reports" : mode === "hazards" ? "Hazard reports" : "Event discovery"}>
       <DiscoveryToolbar
         mode={mode}
         onModeChange={changeMode}
@@ -537,14 +537,14 @@ export function Experience({ initialDate, initial, initialEvent, initialMode = "
         crime={{ query: crimeQuery, category: crimeCategory, windowDays: crimeWindow, latestArticleDate: crimeData?.latestArticleDate || null, loading: crimeLoading, availableCategories: availableCrimeCategories, onQueryChange: (value) => { setCrimeQuery(value); setSelectedCrimeGroupId(null); setSelectedCrimeIncidentId(null); }, onCategoryChange: (value) => { setCrimeCategory(value); setSelectedCrimeGroupId(null); setSelectedCrimeIncidentId(null); }, onWindowChange: chooseCrimeWindow }}
       />
 
-      {mode === "hazards" && <section className="community-pulse" aria-label="Unofficial hazard updates"><div className="community-pulse-heading"><span className="eyebrow">UNOFFICIAL · HAZARDS</span><strong>Heads up around campus</strong></div><div className="community-pulse-items">{pulseUpdates.length ? pulseUpdates.map((item) => <button key={item.id} type="button" onClick={() => selectCommunityUpdate(item.id)}><CommunityIcon kind={item.kind} size={17} /><span>{item.title}</span>{item.isDemo && <small>DEMO</small>}</button>) : <span className="community-pulse-empty">{communityUpdatesUnavailable ? "Updates unavailable" : "No community conditions yet"}</span>}</div></section>}
+      {mode === "hazards" && <section className="community-pulse" aria-label="Unofficial hazard updates"><div className="community-pulse-heading"><span className="eyebrow">UNOFFICIAL · HAZARDS</span><strong>Heads up around campus</strong></div><div className="community-pulse-items">{pulseUpdates.length ? pulseUpdates.map((item) => <button key={item.id} type="button" aria-label={`Show ${item.title} on map`} onClick={() => selectCommunityUpdate(item.id)}><CommunityIcon kind={item.kind} size={17} /><span className="community-pulse-copy"><strong>{communityKindLabels[item.kind]}</strong><small>{item.placeName}</small></span>{item.isDemo && <em>DEMO</em>}</button>) : <span className="community-pulse-empty">{communityUpdatesUnavailable ? "Updates unavailable" : "No community conditions yet"}</span>}</div></section>}
 
       {mode === "events" ? <>
       <div className="events-heading"><div><span className="eyebrow">ON CAMPUS</span><h2>{date === chicagoDate() ? "Today’s discoveries" : formatDay(date)}</h2></div><button className="share-button" onClick={() => share()} aria-label="Share this date">{copied ? <Check size={17} /> : <Share2 size={17} />}</button></div>
       <p className="count-line">{loading ? "Loading official calendar…" : error ? "Calendar unavailable" : `${filtered.length} UW events · ${eventUpdates.length} unofficial events · ${mappedCount} official on map`}{data && !error && <span className="cache-note">{data.cacheStatus === "supabase" ? `Saved in Supabase · synced ${new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" }).format(new Date(data.fetchedAt))}${data.stale ? " · stale copy" : ""}` : data.cacheStatus === "snapshot" ? "Verified offline snapshot" : "Live UW calendar"}</span>}</p>
       </> : mode === "hazards" ? <>
-        <div className="events-heading"><div><span className="eyebrow">COMMUNITY · UNVERIFIED</span><h2>Hazard reports</h2></div><ShieldAlert size={20} /></div>
-        <p className="count-line">{`${hazardUpdates.length} community update${hazardUpdates.length === 1 ? "" : "s"} · ${legacyHazards.length} detailed observation${legacyHazards.length === 1 ? "" : "s"}`}<span className="cache-note">Demo examples are marked and do not describe current conditions.</span></p>
+        <div className="events-heading"><div><span className="eyebrow">COMMUNITY · UNVERIFIED</span><h2>Hazards on campus</h2></div><ShieldAlert size={20} /></div>
+        <p className="count-line">{`${hazardUpdates.length + legacyHazards.length} ${hazardUpdates.length + legacyHazards.length === 1 ? "report" : "reports"} on the map`}<span className="cache-note">Demo examples are illustrations, not live hazards.</span></p>
       </> : <>
         <div className="events-heading crime-events-heading"><div><span className="eyebrow">UWPD OFFICIAL DAILY BLOTTER</span><h2>Recent reports</h2></div><span className="crime-range-badge">{crimeWindow} days</span></div>
         <p className="count-line">{crimeLoading && !crimeData ? "Loading official police blotter…" : crimeError ? "UWPD archive unavailable" : `${filteredCrimes.length} selected entries · ${mappedCrimeCount} mapped · ${unmappedCrimeCount} without a verified building`}{crimeData && <span className="cache-note">Fetched {new Intl.DateTimeFormat("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" }).format(new Date(crimeData.fetchedAt))}{crimeData.partial ? " · archive may be incomplete" : ""}</span>}</p>
