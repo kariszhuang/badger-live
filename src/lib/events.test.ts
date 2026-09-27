@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupVenues, normalizeEvent, normalizeEvents, parseLatLon } from "./events";
+import { availableCategoriesForSearch, groupVenues, normalizeEvent, normalizeEvents, parseLatLon, type CampusEvent } from "./events";
 import snapshot from "@/data/uw-2026-09-26.json";
 
 describe("UW event normalization", () => {
@@ -41,6 +41,18 @@ describe("UW event normalization", () => {
     expect(union).toBeDefined();
     expect(union!.events.length).toBeGreaterThan(1);
     expect(new Set(union!.events.map((event) => event.id)).size).toBe(union!.events.length);
+  });
+  it("offers only categories with results for the current search", () => {
+    const base = normalizeEvent(snapshot.events[0])!;
+    const events: CampusEvent[] = [
+      { ...base, id: "jazz", title: "Jazz at the Union", categories: ["music"] },
+      { ...base, id: "lecture", title: "Campus climate lecture", categories: ["talks"] },
+    ];
+
+    expect(availableCategoriesForSearch(events, "jazz")).toEqual(["music"]);
+    expect(availableCategoriesForSearch(events, "union")).toEqual(["music"]);
+    expect(availableCategoriesForSearch(events, "no matches")).toEqual([]);
+    expect(availableCategoriesForSearch(events, "")).toEqual(["music", "talks"]);
   });
   it("does not combine unrelated venues at identical coordinates", () => {
     const event = normalizeEvent(snapshot.events.find((row) => row.latlon));

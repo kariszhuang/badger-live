@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { campusBuildingDescriptions } from "./campus-building-descriptions";
+import { campusBuildingTags } from "./campus-building-tags";
 
 const positionSchema = z.array(z.number().finite()).min(2);
 const ringSchema = z.array(positionSchema).min(4);
@@ -20,6 +21,7 @@ export const campusBuildingPropertiesSchema = z.object({
   mapObjectId: z.string(),
   name: z.string().min(1),
   shortDescription: z.string().trim().min(1),
+  tags: z.array(z.string().trim().min(1)),
   buildingNumber: z.string().nullish(),
   streetAddress: z.string().nullish(),
   description: z.string().nullish(),
@@ -49,7 +51,10 @@ const campusBuildingsInputSchema = z.object({
   source: z.string().url(),
   capturedAt: z.string().datetime(),
   features: z.array(campusBuildingFeatureSchema.extend({
-    properties: campusBuildingPropertiesSchema.extend({ shortDescription: z.string().trim().min(1).optional() }),
+    properties: campusBuildingPropertiesSchema.extend({
+      shortDescription: z.string().trim().min(1).optional(),
+      tags: z.array(z.string().trim().min(1)).optional(),
+    }),
   })),
 });
 
@@ -66,6 +71,10 @@ export function parseCampusBuildings(input: unknown): CampusBuildings {
       properties: {
         ...feature.properties,
         shortDescription: feature.properties.shortDescription ?? campusBuildingDescriptions[feature.properties.mapObjectId],
+        tags: campusBuildingTags(
+          feature.properties.shortDescription ?? campusBuildingDescriptions[feature.properties.mapObjectId] ?? "",
+          feature.properties.mapObjectId,
+        ),
       },
     })),
   };

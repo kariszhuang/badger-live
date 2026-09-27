@@ -4,6 +4,16 @@ export const categories = ["all", "music", "food", "arts", "sports", "talks", "o
 export type FilterCategory = (typeof categories)[number];
 export type EventCategory = Exclude<FilterCategory, "all"> | "other";
 
+export function availableCategoriesForSearch(events: CampusEvent[], query: string): FilterCategory[] {
+  const needle = query.trim().toLocaleLowerCase();
+  const matchingEvents = needle
+    ? events.filter((event) => [event.title, event.subtitle, event.venueName, event.locationLabel, event.description, ...event.tags]
+      .some((field) => field?.toLocaleLowerCase().includes(needle)))
+    : events;
+  const available = new Set(matchingEvents.flatMap((event) => event.categories));
+  return categories.filter((item): item is Exclude<FilterCategory, "all"> => item !== "all" && available.has(item));
+}
+
 export type CampusEvent = {
   id: string;
   officialId: string;

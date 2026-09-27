@@ -2,8 +2,8 @@ import "server-only";
 import postgres from "postgres";
 import { campusEventSchema, type CampusEvent } from "./events";
 import { EVENT_CACHE_TTL_MS } from "./event-cache-policy";
+import { databaseConnectionString } from "./database-url";
 
-const LOCAL_DATABASE_URL = "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 const eventListSchema = campusEventSchema.array();
 
 type CacheRow = { events: unknown; fetched_at: Date | string; expires_at: Date | string };
@@ -13,7 +13,7 @@ let client: ReturnType<typeof postgres> | null = null;
 let retryAfter = 0;
 
 function database() {
-  const connectionString = process.env.DATABASE_URL || (process.env.NODE_ENV !== "production" ? LOCAL_DATABASE_URL : "");
+  const connectionString = databaseConnectionString();
   if (!connectionString || Date.now() < retryAfter) return null;
   client ??= postgres(connectionString, { max: 1, connect_timeout: 2, idle_timeout: 20, prepare: false });
   return client;

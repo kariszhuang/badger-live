@@ -1,13 +1,19 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { createRoot, type Root } from "react-dom/client";
 import * as maplibregl from "maplibre-gl";
 import type { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
 import type { FeatureCollection } from "geojson";
 import type { EventCategory, VenueGroup } from "@/lib/events";
+import type { CommunitySafetyReport } from "@/lib/safety";
 import { findCampusBuildingAt, type CampusBuilding, type CampusBuildings } from "@/lib/campus-buildings";
+import { type CrimeCategory, type CrimeVenueGroup } from "@/lib/crime-model";
+import { hasVisibleMapPoint, type ScreenRect } from "@/lib/map-visibility";
+import { CAMPUS_BUILDING_FILL_PAINT, campusBuildingLayerInsertionPoints } from "@/lib/campus-building-map-style";
+import { CrimeCategoryIcon, SafetyCategoryIcon } from "./category-icons";
 
-type Props = { groups: VenueGroup[]; selectedGroupId: string | null; liveGroupIds: string[]; angled: boolean; onSelect: (id: string) => void; focus: [number, number] | null; userLocation: [number, number] | null; fitSignal: number; campusSignal: number; mapKey: string; buildings: CampusBuildings | null; selectedBuildingId: string | null; onSelectBuilding: (building: CampusBuilding, coordinates: [number, number]) => void };
+type Props = { groups: VenueGroup[]; selectedGroupId: string | null; liveGroupIds: string[]; crimeGroups: CrimeVenueGroup[]; selectedCrimeGroupId: string | null; onSelectCrimeGroup: (id: string) => void; safetyReports: CommunitySafetyReport[]; selectedSafetyReportId: string | null; angled: boolean; onSelect: (id: string) => void; onSelectSafetyReport: (id: string) => void; focus: [number, number] | null; sheetLevel: "closed" | "half" | "full"; userLocation: [number, number] | null; fitSignal: number; autoFitSignal: number; campusSignal: number; mapKey: string; buildings: CampusBuildings | null; selectedBuildingId: string | null; onSelectBuilding: (building: CampusBuilding, coordinates: [number, number]) => void };
 const CENTER: [number, number] = [-89.405, 43.075];
 const CAMPUS_BOUNDS: [[number, number], [number, number]] = [[-89.455, 43.045], [-89.375, 43.095]];
 const BUILDING_SOURCE = "uw-campus-buildings";
@@ -25,24 +31,23 @@ const ICON_PATHS: Record<EventCategory, string[]> = {
   talks: ["M4 5.5A2.5 2.5 0 0 1 6.5 3H20v17H6.5A2.5 2.5 0 0 0 4 22z", "M4 5.5v16", "M8 7h8", "M8 11h8"],
   outdoors: ["M12 22v-8", "M12 14c-5 0-8-3-8-8 5 0 8 3 8 8Z", "M12 17c0-5 3-8 8-8 0 5-3 8-8 8Z"],
   community: ["M16 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2", "M10 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z", "M20 21v-2a4 4 0 0 0-3-3.87", "M16 3.13a4 4 0 0 1 0 7.75"],
-  other: ["M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18Z", "M12 8v4", "M12 16h.01"],
+  other: ["M8 2v4", "M16 2v4", "M4 5h16v17H4z", "M4 10h16"],
 };
-const LANDMARKS = [
-  { name: "Memorial Union", coordinates: [-89.3999144494, 43.0764210063] as [number, number], symbol: "⌂", className: "union" },
-  { name: "Bascom Hill", coordinates: [-89.4048, 43.0754] as [number, number], symbol: "▲", className: "bascom" },
-  { name: "Camp Randall", coordinates: [-89.41261, 43.07005] as [number, number], symbol: "▤", className: "stadium" },
-  { name: "Wisconsin State Capitol", coordinates: [-89.3842, 43.0747] as [number, number], symbol: "⌂", className: "capitol" },
-];
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-export function CampusMap({ groups, selectedGroupId, liveGroupIds, angled, onSelect, focus, userLocation, fitSignal, campusSignal, mapKey, buildings, selectedBuildingId, onSelectBuilding }: Props) {
+export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, selectedCrimeGroupId, onSelectCrimeGroup, safetyReports, selectedSafetyReportId, onSelectSafetyReport, angled, onSelect, focus, sheetLevel, userLocation, fitSignal, autoFitSignal, campusSignal, mapKey, buildings, selectedBuildingId, onSelectBuilding }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const markers = useRef<Marker[]>([]);
-  const landmarkMarkers = useRef<Marker[]>([]);
+  const crimeMarkers = useRef<Marker[]>([]);
+  const crimeIconRoots = useRef<Root[]>([]);
+  const safetyMarkers = useRef<Marker[]>([]);
+  const safetyIconRoots = useRef<Root[]>([]);
   const userMarker = useRef<Marker | null>(null);
   const fallbackUsed = useRef(false);
   const onSelectRef = useRef(onSelect);
+  const onSelectSafetyReportRef = useRef(onSelectSafetyReport);
+  const onSelectCrimeGroupRef = useRef(onSelectCrimeGroup);
   const onSelectBuildingRef = useRef(onSelectBuilding);
   const buildingsRef = useRef(buildings);
   const selectedBuildingIdRef = useRef(selectedBuildingId);
@@ -51,6 +56,8 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, angled, onSel
   const buildingHandlersAttached = useRef(false);
   const angledRef = useRef(angled);
   useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
+  useEffect(() => { onSelectSafetyReportRef.current = onSelectSafetyReport; }, [onSelectSafetyReport]);
+  useEffect(() => { onSelectCrimeGroupRef.current = onSelectCrimeGroup; }, [onSelectCrimeGroup]);
   useEffect(() => { onSelectBuildingRef.current = onSelectBuilding; }, [onSelectBuilding]);
   useEffect(() => { buildingsRef.current = buildings; }, [buildings]);
   useEffect(() => { selectedBuildingIdRef.current = selectedBuildingId; }, [selectedBuildingId]);
@@ -88,7 +95,7 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, angled, onSel
       };
       const onBuildingClick = (event: maplibregl.MapMouseEvent) => {
         const target = event.originalEvent.target;
-        if (target instanceof Element && target.closest(".maplibregl-marker, .venue-marker-anchor, .landmark-marker, .maplibregl-ctrl")) return;
+        if (target instanceof Element && target.closest(".maplibregl-marker, .venue-marker-anchor, .crime-map-marker-anchor, .safety-map-marker, .maplibregl-ctrl")) return;
         const layers = interactiveLayers();
         const feature = layers.length ? instance.queryRenderedFeatures(event.point, { layers })[0] : undefined;
         const rawId = feature?.properties?.mapObjectId ?? feature?.id;
@@ -123,25 +130,16 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, angled, onSel
       }
     });
     map.current = instance;
-    landmarkMarkers.current = LANDMARKS.map((landmark) => {
-      const element = document.createElement("button");
-      element.type = "button";
-      element.className = `landmark-marker landmark-${landmark.className}`;
-      element.setAttribute("aria-label", `Show ${landmark.name} on the map`);
-      const content = document.createElement("span");
-      content.className = "landmark-content";
-      const symbol = document.createElement("span");
-      symbol.className = "landmark-symbol";
-      symbol.textContent = landmark.symbol;
-      const label = document.createElement("span");
-      label.className = "landmark-name";
-      label.textContent = landmark.name;
-      content.append(symbol, label);
-      element.append(content);
-      element.addEventListener("click", () => instance.flyTo({ center: landmark.coordinates, zoom: Math.max(instance.getZoom(), 15.5), essential: true }));
-      return new maplibregl.Marker({ element, anchor: "left", offset: [9, -2] }).setLngLat(landmark.coordinates).addTo(instance);
-    });
-    return () => { markers.current.forEach((marker) => marker.remove()); markers.current = []; landmarkMarkers.current.forEach((marker) => marker.remove()); landmarkMarkers.current = []; userMarker.current?.remove(); userMarker.current = null; installBuildingHandlers.current = null; buildingHandlersAttached.current = false; instance.remove(); map.current = null; };
+    return () => {
+      markers.current.forEach((marker) => marker.remove()); markers.current = [];
+      crimeIconRoots.current.forEach((root) => root.unmount()); crimeIconRoots.current = [];
+      crimeMarkers.current.forEach((marker) => marker.remove()); crimeMarkers.current = [];
+      safetyIconRoots.current.forEach((root) => root.unmount()); safetyIconRoots.current = [];
+      safetyMarkers.current.forEach((marker) => marker.remove()); safetyMarkers.current = [];
+      userMarker.current?.remove(); userMarker.current = null;
+      installBuildingHandlers.current = null; buildingHandlersAttached.current = false;
+      instance.remove(); map.current = null;
+    };
     // One map instance survives filtering and date changes.
   }, [mapKey]);
 
@@ -200,12 +198,99 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, angled, onSel
   }, [groups]);
 
   useEffect(() => {
+    const instance = map.current;
+    crimeIconRoots.current.forEach((root) => root.unmount());
+    crimeIconRoots.current = [];
+    crimeMarkers.current.forEach((marker) => marker.remove());
+    crimeMarkers.current = [];
+    if (!instance) return;
+    crimeMarkers.current = crimeGroups.map((group) => {
+      const counts = new Map<CrimeCategory, number>();
+      group.incidents.forEach((incident) => counts.set(incident.category, (counts.get(incident.category) || 0) + 1));
+      const category = [...counts.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] || "theft";
+      const element = document.createElement("button");
+      element.type = "button";
+      element.className = "crime-map-marker-anchor";
+      element.dataset.crimeGroupId = group.id;
+      element.setAttribute("aria-label", `${group.incidents.length} official police blotter ${group.incidents.length === 1 ? "entry" : "entries"} at ${group.name}; select to review`);
+      element.title = `${group.incidents.length} UWPD blotter ${group.incidents.length === 1 ? "entry" : "entries"} · ${group.name}`;
+      const visual = document.createElement("span");
+      visual.className = `crime-map-marker crime-category-${category}`;
+      const icon = document.createElement("span");
+      icon.className = "crime-map-marker-symbol";
+      const iconRoot = createRoot(icon);
+      iconRoot.render(<CrimeCategoryIcon category={category} size={17} />);
+      crimeIconRoots.current.push(iconRoot);
+      visual.append(icon);
+      visual.classList.toggle("has-count", group.incidents.length > 1);
+      if (group.incidents.length > 1) {
+        const count = document.createElement("span");
+        count.className = "crime-map-marker-count";
+        count.textContent = String(group.incidents.length);
+        visual.append(count);
+      }
+      element.append(visual);
+      element.addEventListener("click", () => onSelectCrimeGroupRef.current(group.id));
+      return new maplibregl.Marker({ element, anchor: "center" }).setLngLat(group.coordinates).addTo(instance);
+    });
+    return () => {
+      crimeIconRoots.current.forEach((root) => root.unmount()); crimeIconRoots.current = [];
+      crimeMarkers.current.forEach((marker) => marker.remove()); crimeMarkers.current = [];
+    };
+  }, [crimeGroups]);
+
+  useEffect(() => {
+    crimeMarkers.current.forEach((marker) => marker.getElement().classList.toggle("is-selected", marker.getElement().dataset.crimeGroupId === selectedCrimeGroupId));
+  }, [crimeGroups, selectedCrimeGroupId]);
+
+  useEffect(() => {
     markers.current.forEach((marker) => {
       const element = marker.getElement();
       element.classList.toggle("is-selected", element.dataset.groupId === selectedGroupId);
       element.classList.toggle("is-live", liveGroupIds.includes(element.dataset.groupId || ""));
     });
   }, [groups, selectedGroupId, liveGroupIds]);
+
+  useEffect(() => {
+    const instance = map.current;
+    safetyIconRoots.current.forEach((root) => root.unmount());
+    safetyIconRoots.current = [];
+    safetyMarkers.current.forEach((marker) => marker.remove());
+    safetyMarkers.current = [];
+    if (!instance) return;
+    safetyMarkers.current = safetyReports
+      .filter((report) => report.status !== "outdated-resolved")
+      .map((report) => {
+        const element = document.createElement("button");
+        element.type = "button";
+        element.className = `safety-map-marker ${report.status === "community-confirmed-environmental-hazard" ? "is-confirmed" : "is-unverified"}`;
+        element.dataset.reportId = report.id;
+        element.setAttribute("aria-label", `${report.status === "community-confirmed-environmental-hazard" ? "Community-confirmed environmental condition" : "Unverified community report"}: ${report.description}`);
+        element.title = `${report.reportCount} community ${report.reportCount === 1 ? "report" : "reports"} near ${report.buildingName}`;
+        const symbol = document.createElement("span");
+        symbol.className = "safety-map-marker-symbol";
+        const iconRoot = createRoot(symbol);
+        iconRoot.render(<SafetyCategoryIcon category={report.category} size={17} />);
+        safetyIconRoots.current.push(iconRoot);
+        element.append(symbol);
+        if (report.reportCount > 1) {
+          const count = document.createElement("span");
+          count.className = "safety-map-marker-count";
+          count.textContent = String(report.reportCount);
+          element.append(count);
+        }
+        element.addEventListener("click", () => onSelectSafetyReportRef.current(report.id));
+        return new maplibregl.Marker({ element, anchor: "center" }).setLngLat(report.coordinates).addTo(instance);
+      });
+    return () => {
+      safetyIconRoots.current.forEach((root) => root.unmount()); safetyIconRoots.current = [];
+      safetyMarkers.current.forEach((marker) => marker.remove()); safetyMarkers.current = [];
+    };
+  }, [safetyReports]);
+
+  useEffect(() => {
+    safetyMarkers.current.forEach((marker) => marker.getElement().classList.toggle("is-selected", marker.getElement().dataset.reportId === selectedSafetyReportId));
+  }, [selectedSafetyReportId, safetyReports]);
 
   useEffect(() => {
     userMarker.current?.remove();
@@ -218,7 +303,59 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, angled, onSel
     userMarker.current = new maplibregl.Marker({ element }).setLngLat(userLocation).addTo(map.current);
   }, [userLocation]);
 
-  useEffect(() => { if (focus && map.current) map.current.flyTo({ center: focus, zoom: Math.max(map.current.getZoom(), 15), essential: true }); }, [focus]);
+  useEffect(() => {
+    const instance = map.current;
+    if (!focus || !instance) return;
+    const offset: [number, number] = [0, 0];
+    if (window.matchMedia("(max-width: 767px)").matches) {
+      const bounds = instance.getContainer().getBoundingClientRect();
+      const headerBottom = document.querySelector(".discovery-header")?.getBoundingClientRect().bottom ?? bounds.top;
+      const sheetTop = sheetLevel === "closed"
+        ? bounds.bottom
+        : document.querySelector(".mobile-sheet")?.getBoundingClientRect().top ?? bounds.bottom;
+      const visibleTop = Math.max(bounds.top, Math.min(bounds.bottom, headerBottom));
+      const visibleBottom = Math.max(visibleTop, Math.min(bounds.bottom, sheetTop));
+      offset[1] = (visibleTop + visibleBottom) / 2 - (bounds.top + bounds.height / 2);
+    }
+    instance.flyTo({ center: focus, zoom: Math.max(instance.getZoom(), 15), offset, essential: true });
+  }, [focus, sheetLevel]);
+  useEffect(() => {
+    const instance = map.current;
+    if (!autoFitSignal || !instance || !instance.isStyleLoaded() || groups.length === 0) return;
+
+    const containerBounds = instance.getContainer().getBoundingClientRect();
+    const width = containerBounds.width;
+    const height = containerBounds.height;
+    const viewport = usableMapViewport(containerBounds, sheetLevel);
+    if (viewport.right - viewport.left < 120 || viewport.bottom - viewport.top < 120) return;
+    const visiblePoints = groups.map((group) => {
+      const projected = instance.project(group.coordinates);
+      return { x: projected.x, y: projected.y };
+    });
+    if (hasVisibleMapPoint(visiblePoints, viewport)) return;
+
+    const padding = {
+      top: viewport.top + 28,
+      right: width - viewport.right + 28,
+      bottom: height - viewport.bottom + 28,
+      left: viewport.left + 28,
+    };
+    if (groups.length === 1) {
+      const center = [(viewport.left + viewport.right) / 2, (viewport.top + viewport.bottom) / 2] as const;
+      instance.flyTo({
+        center: groups[0].coordinates,
+        zoom: Math.min(15.5, Math.max(instance.getZoom(), 14.5)),
+        offset: [center[0] - width / 2, center[1] - height / 2],
+        duration: 650,
+        essential: true,
+      });
+      return;
+    }
+
+    const bounds = new maplibregl.LngLatBounds();
+    groups.forEach(({ coordinates }) => bounds.extend(coordinates));
+    instance.fitBounds(bounds, { padding, maxZoom: 15.5, duration: 650 });
+  }, [autoFitSignal, groups, sheetLevel]);
   useEffect(() => {
     if (!map.current) return;
     const instance = map.current;
@@ -227,14 +364,39 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, angled, onSel
     else instance.easeTo({ pitch: 0, bearing: 0, duration: 550 });
   }, [angled]);
   useEffect(() => {
-    if (!fitSignal || !map.current || groups.length === 0) return;
+    const points = [...groups.map(({ coordinates }) => coordinates), ...crimeGroups.map(({ coordinates }) => coordinates)];
+    if (!fitSignal || !map.current || points.length === 0) return;
     const bounds = new maplibregl.LngLatBounds();
-    groups.forEach((group) => bounds.extend(group.coordinates));
+    points.forEach((coordinates) => bounds.extend(coordinates));
     map.current.fitBounds(bounds, { padding: 70, maxZoom: 15, duration: 650 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitSignal]);
   useEffect(() => { if (campusSignal && map.current) map.current.flyTo({ center: CENTER, zoom: 14.25, essential: true }); }, [campusSignal]);
   return <div ref={container} className="map-canvas" role="application" aria-label="Interactive map of UW–Madison event venues" />;
+}
+
+function usableMapViewport(container: DOMRect, sheetLevel: Props["sheetLevel"]): ScreenRect {
+  const mobile = window.matchMedia("(max-width: 767px)").matches;
+  if (mobile) {
+    const headerBottom = document.querySelector(".discovery-header")?.getBoundingClientRect().bottom ?? container.top;
+    const sheetTop = sheetLevel === "closed"
+      ? container.bottom
+      : document.querySelector(".mobile-sheet")?.getBoundingClientRect().top ?? container.bottom;
+    return {
+      left: 0,
+      top: Math.max(0, headerBottom - container.top),
+      right: container.width,
+      bottom: Math.max(0, sheetTop - container.top),
+    };
+  }
+
+  const panelRight = document.querySelector(".discovery-panel")?.getBoundingClientRect().right ?? container.left;
+  return {
+    left: Math.max(0, panelRight - container.left),
+    top: 0,
+    right: container.width,
+    bottom: container.height,
+  };
 }
 
 function addCampusBuildings(instance: MapLibreMap, collection: CampusBuildings | null, selectedBuildingId: string | null) {
@@ -250,8 +412,7 @@ function addCampusBuildings(instance: MapLibreMap, collection: CampusBuildings |
     });
   }
 
-  const firstSymbol = instance.getStyle().layers.find((layer) => layer.type === "symbol")?.id;
-  const beforeId = firstSymbol;
+  const { footprintsBeforeId, labelsBeforeId } = campusBuildingLayerInsertionPoints(instance.getStyle().layers);
   if (!instance.getLayer(BUILDING_FILL)) {
     instance.addLayer({
       id: BUILDING_FILL,
@@ -259,11 +420,8 @@ function addCampusBuildings(instance: MapLibreMap, collection: CampusBuildings |
       source: BUILDING_SOURCE,
       filter: ["any", ["==", ["geometry-type"], "Polygon"], ["==", ["geometry-type"], "MultiPolygon"]],
       layout: { visibility: "visible" },
-      paint: {
-        "fill-color": ["case", ["boolean", ["feature-state", "selected"], false], "#c5050c", ["boolean", ["feature-state", "hover"], false], "#c94d48", "#d65f56"],
-        "fill-opacity": ["case", ["boolean", ["feature-state", "selected"], false], 0.86, ["boolean", ["feature-state", "hover"], false], 0.82, 0.76],
-      },
-    }, beforeId);
+      paint: CAMPUS_BUILDING_FILL_PAINT,
+    }, footprintsBeforeId);
     instance.addLayer({
       id: BUILDING_SHADOW,
       type: "line",
@@ -276,7 +434,7 @@ function addCampusBuildings(instance: MapLibreMap, collection: CampusBuildings |
         "line-translate": [0, 1.5],
         "line-translate-anchor": "viewport",
       },
-    }, beforeId);
+    }, footprintsBeforeId);
     instance.addLayer({
       id: BUILDING_OUTLINE,
       type: "line",
@@ -287,14 +445,14 @@ function addCampusBuildings(instance: MapLibreMap, collection: CampusBuildings |
         "line-width": ["case", ["boolean", ["feature-state", "selected"], false], 3.2, ["boolean", ["feature-state", "hover"], false], 2.4, 2],
         "line-opacity": 0.92,
       },
-    }, beforeId);
+    }, footprintsBeforeId);
     instance.addLayer({
       id: BUILDING_PARTIAL,
       type: "line",
       source: BUILDING_SOURCE,
       filter: ["==", ["get", "footprintStatus"], "partial"],
       paint: { "line-color": "#a47a3e", "line-width": 1.7, "line-dasharray": [2, 1.5], "line-opacity": 0.9 },
-    }, beforeId);
+    }, footprintsBeforeId);
     instance.addLayer({
       id: BUILDING_POINTS,
       type: "circle",
@@ -306,7 +464,7 @@ function addCampusBuildings(instance: MapLibreMap, collection: CampusBuildings |
         "circle-stroke-color": "#fffdf8",
         "circle-stroke-width": 2.5,
       },
-    }, beforeId);
+    }, footprintsBeforeId);
     instance.addLayer({
       id: BUILDING_LABELS,
       type: "symbol",
@@ -321,7 +479,7 @@ function addCampusBuildings(instance: MapLibreMap, collection: CampusBuildings |
         "text-optional": true,
       },
       paint: { "text-color": "#703735", "text-halo-color": "#fffaf2", "text-halo-width": 1.6, "text-opacity": 0.94 },
-    });
+    }, labelsBeforeId);
   }
   if (selectedBuildingId) instance.setFeatureState({ source: BUILDING_SOURCE, id: selectedBuildingId }, { selected: true });
 }

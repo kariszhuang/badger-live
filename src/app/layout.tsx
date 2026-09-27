@@ -10,7 +10,13 @@ export const metadata: Metadata = {
   description: "Explore real public UW–Madison events on a living campus map. Independent student project.",
   applicationName: "Badger Live",
   manifest: "/manifest.webmanifest",
-  icons: { icon: "/icons/icon-192.png", apple: "/icons/icon-192.png" },
+  icons: {
+    icon: [
+      { url: "/icons/badger-live-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/icons/badger-live-512.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: { url: "/icons/badger-live-180.png", sizes: "180x180", type: "image/png" },
+  },
 };
 export const viewport: Viewport = { themeColor: "#c5050c", width: "device-width", initialScale: 1 };
 
