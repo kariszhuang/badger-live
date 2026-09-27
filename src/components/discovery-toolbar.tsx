@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { ArrowLeft, ArrowRight, CalendarDays, List, Search, ShieldCheck, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, CalendarDays, List, MapPin, Search, ShieldCheck, X } from "lucide-react";
 import { categories, type FilterCategory } from "@/lib/events";
 import { crimeCategories, crimeCategoryInfo, type CrimeCategory } from "@/lib/crime-model";
 import { chicagoDate, formatDay } from "@/lib/chicago-date";
@@ -38,6 +38,9 @@ export function DiscoveryToolbar({
   resultCount,
   listOpen,
   onToggleList,
+  communityVisible,
+  communityCount,
+  onCommunityChange,
   events,
   crime,
 }: {
@@ -46,6 +49,9 @@ export function DiscoveryToolbar({
   resultCount: number;
   listOpen: boolean;
   onToggleList: () => void;
+  communityVisible: boolean;
+  communityCount: number;
+  onCommunityChange: (visible: boolean) => void;
   events: EventsControls;
   crime: CrimeControls;
 }) {
@@ -85,6 +91,7 @@ export function DiscoveryToolbar({
       </div>
       <div className="filter-row toolbar-filter-row" role="group" aria-label="Filter events by interest">
         {categories.filter((item) => item === "all" || events.availableCategories.includes(item)).map((item) => <button type="button" key={item} className={`filter-chip category-filter-${item} ${events.category === item ? "active" : ""}`} aria-pressed={events.category === item} onClick={() => events.onCategoryChange(item)}><EventCategoryIcon category={item} size={15} />{item === "all" ? "All" : item === "talks" ? "Talks" : item[0].toUpperCase() + item.slice(1)}</button>)}
+        <button type="button" className={`filter-chip community-layer-chip ${communityVisible ? "active" : ""}`} aria-pressed={communityVisible} onClick={() => onCommunityChange(!communityVisible)}><MapPin size={15} />Community · {communityCount}</button>
       </div>
     </> : <>
       <div className="crime-window-row toolbar-crime-window" role="group" aria-label="Blotter date range">
@@ -94,6 +101,7 @@ export function DiscoveryToolbar({
       <div className="filter-row crime-filter-row toolbar-filter-row" role="group" aria-label="Filter official blotter entries by type">
         <button type="button" className={`filter-chip crime-filter-all ${crime.category === "all" ? "active" : ""}`} aria-pressed={crime.category === "all"} onClick={() => crime.onCategoryChange("all")}><ShieldCheck size={15} aria-hidden="true" />All reports</button>
         {crimeCategories.filter((item) => crime.availableCategories.includes(item)).map((item) => <button type="button" key={item} className={`filter-chip crime-filter-${item} ${crime.category === item ? "active" : ""}`} aria-pressed={crime.category === item} onClick={() => crime.onCategoryChange(item)}><CrimeCategoryIcon category={item} size={15} />{crimeCategoryInfo[item].label}</button>)}
+        <button type="button" className={`filter-chip community-layer-chip ${communityVisible ? "active" : ""}`} aria-pressed={communityVisible} onClick={() => onCommunityChange(!communityVisible)}><MapPin size={15} />Community · {communityCount}</button>
       </div>
     </>}
   </header>;

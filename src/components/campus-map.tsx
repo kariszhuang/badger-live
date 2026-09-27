@@ -6,14 +6,14 @@ import * as maplibregl from "maplibre-gl";
 import type { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
 import type { FeatureCollection } from "geojson";
 import type { EventCategory, VenueGroup } from "@/lib/events";
-import type { CommunitySafetyReport } from "@/lib/safety";
+import type { HazardReport } from "@/lib/report/types";
 import { findCampusBuildingAt, type CampusBuilding, type CampusBuildings } from "@/lib/campus-buildings";
 import { CAMPUS_MAP_BOUNDS } from "@/lib/campus-map-bounds";
 import { type CrimeCategory, type CrimeVenueGroup } from "@/lib/crime-model";
 import { CAMPUS_BUILDING_FILL_PAINT, campusBuildingLayerInsertionPoints } from "@/lib/campus-building-map-style";
-import { CrimeCategoryIcon, SafetyCategoryIcon } from "./category-icons";
+import { CrimeCategoryIcon } from "./category-icons";
 
-type Props = { groups: VenueGroup[]; selectedGroupId: string | null; liveGroupIds: string[]; crimeGroups: CrimeVenueGroup[]; selectedCrimeGroupId: string | null; onSelectCrimeGroup: (id: string) => void; safetyReports: CommunitySafetyReport[]; selectedSafetyReportId: string | null; onSelect: (id: string) => void; onSelectSafetyReport: (id: string) => void; focus: [number, number] | null; sheetLevel: "closed" | "half" | "full"; userLocation: [number, number] | null; campusSignal: number; mapKey: string; buildings: CampusBuildings | null; selectedBuildingId: string | null; onSelectBuilding: (building: CampusBuilding, coordinates: [number, number]) => void };
+type Props = { groups: VenueGroup[]; selectedGroupId: string | null; liveGroupIds: string[]; crimeGroups: CrimeVenueGroup[]; selectedCrimeGroupId: string | null; onSelectCrimeGroup: (id: string) => void; hazards: HazardReport[]; hazardsVisible: boolean; selectedHazardId: string | null; onSelectHazard: (id: string) => void; pickingLocation: boolean; onMapPoint: (coordinates: [number, number]) => void; onSelect: (id: string) => void; focus: [number, number] | null; sheetLevel: "closed" | "half" | "full"; userLocation: [number, number] | null; campusSignal: number; mapKey: string; buildings: CampusBuildings | null; selectedBuildingId: string | null; onSelectBuilding: (building: CampusBuilding, coordinates: [number, number]) => void };
 const CENTER: [number, number] = [-89.405, 43.075];
 const BUILDING_SOURCE = "uw-campus-buildings";
 const BUILDING_FILL = "uw-campus-building-fill";
@@ -22,6 +22,9 @@ const BUILDING_OUTLINE = "uw-campus-building-outline";
 const BUILDING_PARTIAL = "uw-campus-building-partial";
 const BUILDING_POINTS = "uw-campus-building-complexes";
 const BUILDING_LABELS = "uw-campus-building-labels";
+const HAZARD_SOURCE = "community-hazard-reports";
+const HAZARD_CIRCLES = "community-hazard-circles";
+const HAZARD_LABELS = "community-hazard-labels";
 const ICON_PATHS: Record<EventCategory, string[]> = {
   music: ["M9 18V5l12-2v13", "M9 9l12-2", "M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z", "M18 19a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"],
   food: ["M3 2v7a4 4 0 0 0 4 4", "M7 2v20", "M11 2v7a4 4 0 0 1-4 4", "M16 2v20", "M20 2v7a4 4 0 0 1-4 4"],
@@ -34,18 +37,20 @@ const ICON_PATHS: Record<EventCategory, string[]> = {
 };
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, selectedCrimeGroupId, onSelectCrimeGroup, safetyReports, selectedSafetyReportId, onSelectSafetyReport, onSelect, focus, sheetLevel, userLocation, campusSignal, mapKey, buildings, selectedBuildingId, onSelectBuilding }: Props) {
+export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, selectedCrimeGroupId, onSelectCrimeGroup, hazards, hazardsVisible, selectedHazardId, onSelectHazard, pickingLocation, onMapPoint, onSelect, focus, sheetLevel, userLocation, campusSignal, mapKey, buildings, selectedBuildingId, onSelectBuilding }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const map = useRef<MapLibreMap | null>(null);
   const markers = useRef<Marker[]>([]);
   const crimeMarkers = useRef<Marker[]>([]);
   const crimeIconRoots = useRef<Root[]>([]);
-  const safetyMarkers = useRef<Marker[]>([]);
-  const safetyIconRoots = useRef<Root[]>([]);
   const userMarker = useRef<Marker | null>(null);
   const fallbackUsed = useRef(false);
   const onSelectRef = useRef(onSelect);
-  const onSelectSafetyReportRef = useRef(onSelectSafetyReport);
+  const onSelectHazardRef = useRef(onSelectHazard);
+  const onMapPointRef = useRef(onMapPoint);
+  const hazardsRef = useRef(hazards);
+  const hazardsVisibleRef = useRef(hazardsVisible);
+  const pickingLocationRef = useRef(pickingLocation);
   const onSelectCrimeGroupRef = useRef(onSelectCrimeGroup);
   const onSelectBuildingRef = useRef(onSelectBuilding);
   const buildingsRef = useRef(buildings);
@@ -54,7 +59,11 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
   const installBuildingHandlers = useRef<(() => void) | null>(null);
   const buildingHandlersAttached = useRef(false);
   useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
-  useEffect(() => { onSelectSafetyReportRef.current = onSelectSafetyReport; }, [onSelectSafetyReport]);
+  useEffect(() => { onSelectHazardRef.current = onSelectHazard; }, [onSelectHazard]);
+  useEffect(() => { onMapPointRef.current = onMapPoint; }, [onMapPoint]);
+  useEffect(() => { hazardsRef.current = hazards; }, [hazards]);
+  useEffect(() => { hazardsVisibleRef.current = hazardsVisible; }, [hazardsVisible]);
+  useEffect(() => { pickingLocationRef.current = pickingLocation; }, [pickingLocation]);
   useEffect(() => { onSelectCrimeGroupRef.current = onSelectCrimeGroup; }, [onSelectCrimeGroup]);
   useEffect(() => { onSelectBuildingRef.current = onSelectBuilding; }, [onSelectBuilding]);
   useEffect(() => { buildingsRef.current = buildings; }, [buildings]);
@@ -92,12 +101,16 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
         instance.getCanvas().style.cursor = "pointer";
       };
       const onBuildingClick = (event: maplibregl.MapMouseEvent) => {
+        const coordinate: [number, number] = [event.lngLat.lng, event.lngLat.lat];
+        if (pickingLocationRef.current) { onMapPointRef.current(coordinate); return; }
         const target = event.originalEvent.target;
-        if (target instanceof Element && target.closest(".maplibregl-marker, .venue-marker-anchor, .crime-map-marker-anchor, .safety-map-marker, .maplibregl-ctrl")) return;
+        if (target instanceof Element && target.closest(".maplibregl-marker, .venue-marker-anchor, .crime-map-marker-anchor, .maplibregl-ctrl")) return;
+        const hazardFeatures = instance.getLayer(HAZARD_CIRCLES) ? instance.queryRenderedFeatures(event.point, { layers: [HAZARD_CIRCLES] }) : [];
+        const hazardId = hazardFeatures[0]?.properties?.id;
+        if (typeof hazardId === "string") { onSelectHazardRef.current(hazardId); return; }
         const layers = interactiveLayers();
         const feature = layers.length ? instance.queryRenderedFeatures(event.point, { layers })[0] : undefined;
         const rawId = feature?.properties?.mapObjectId ?? feature?.id;
-        const coordinate: [number, number] = [event.lngLat.lng, event.lngLat.lat];
         const buildingFeature = (rawId === undefined || rawId === null ? undefined : buildingsRef.current?.features.find(({ properties }) => properties.mapObjectId === String(rawId)))
           ?? findCampusBuildingAt(buildingsRef.current, coordinate);
         if (!buildingFeature) return;
@@ -118,11 +131,13 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
       }
       attachHandlersWhenReady();
     };
-    instance.on("style.load", () => {
+      instance.on("style.load", () => {
       container.current?.setAttribute("data-buildings-ready", "false");
       applyCampusPalette(instance);
       if (instance.isStyleLoaded()) syncCampusBuildings();
       else instance.once("idle", syncCampusBuildings);
+      if (instance.isStyleLoaded()) addHazardLayer(instance, hazardsRef.current, hazardsVisibleRef.current);
+      else instance.once("idle", () => addHazardLayer(instance, hazardsRef.current, hazardsVisibleRef.current));
     });
     instance.on("error", () => {
       if (mapKey && !fallbackUsed.current) {
@@ -134,13 +149,10 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
     });
     map.current = instance;
     const mountedCrimeRoots = crimeIconRoots.current;
-    const mountedSafetyRoots = safetyIconRoots.current;
     return () => {
       markers.current.forEach((marker) => marker.remove()); markers.current = [];
       unmountRoots(mountedCrimeRoots);
       crimeMarkers.current.forEach((marker) => marker.remove()); crimeMarkers.current = [];
-      unmountRoots(mountedSafetyRoots);
-      safetyMarkers.current.forEach((marker) => marker.remove()); safetyMarkers.current = [];
       userMarker.current?.remove(); userMarker.current = null;
       installBuildingHandlers.current = null; buildingHandlersAttached.current = false;
       instance.remove(); map.current = null;
@@ -261,44 +273,27 @@ export function CampusMap({ groups, selectedGroupId, liveGroupIds, crimeGroups, 
 
   useEffect(() => {
     const instance = map.current;
-    const roots = safetyIconRoots.current;
-    unmountRoots(roots);
-    safetyMarkers.current.forEach((marker) => marker.remove());
-    safetyMarkers.current = [];
     if (!instance) return;
-    safetyMarkers.current = safetyReports
-      .filter((report) => report.status !== "outdated-resolved")
-      .map((report) => {
-        const element = document.createElement("button");
-        element.type = "button";
-        element.className = `safety-map-marker ${report.status === "community-confirmed-environmental-hazard" ? "is-confirmed" : "is-unverified"}`;
-        element.dataset.reportId = report.id;
-        element.setAttribute("aria-label", `${report.status === "community-confirmed-environmental-hazard" ? "Community-confirmed environmental condition" : "Unverified community report"}: ${report.description}`);
-        element.title = `${report.reportCount} community ${report.reportCount === 1 ? "report" : "reports"} near ${report.buildingName}`;
-        const symbol = document.createElement("span");
-        symbol.className = "safety-map-marker-symbol";
-        const iconRoot = createRoot(symbol);
-        iconRoot.render(<SafetyCategoryIcon category={report.category} size={17} />);
-        roots.push(iconRoot);
-        element.append(symbol);
-        if (report.reportCount > 1) {
-          const count = document.createElement("span");
-          count.className = "safety-map-marker-count";
-          count.textContent = String(report.reportCount);
-          element.append(count);
-        }
-        element.addEventListener("click", () => onSelectSafetyReportRef.current(report.id));
-        return new maplibregl.Marker({ element, anchor: "center" }).setLngLat(report.coordinates).addTo(instance);
-      });
-    return () => {
-      unmountRoots(roots);
-      safetyMarkers.current.forEach((marker) => marker.remove()); safetyMarkers.current = [];
-    };
-  }, [safetyReports]);
+    const update = () => addHazardLayer(instance, hazards, hazardsVisible);
+    if (instance.isStyleLoaded()) update();
+    else instance.once("idle", update);
+    return () => { instance.off("idle", update); };
+  }, [hazards, hazardsVisible]);
 
   useEffect(() => {
-    safetyMarkers.current.forEach((marker) => marker.getElement().classList.toggle("is-selected", marker.getElement().dataset.reportId === selectedSafetyReportId));
-  }, [selectedSafetyReportId, safetyReports]);
+    const instance = map.current;
+    if (!instance?.getSource(HAZARD_SOURCE)) return;
+    if (selectedHazardId) instance.setFeatureState({ source: HAZARD_SOURCE, id: selectedHazardId }, { selected: true });
+    return () => {
+      if (selectedHazardId && instance.getSource(HAZARD_SOURCE)) instance.setFeatureState({ source: HAZARD_SOURCE, id: selectedHazardId }, { selected: false });
+    };
+  }, [selectedHazardId]);
+
+  useEffect(() => {
+    if (!map.current) return;
+    map.current.getCanvas().style.cursor = pickingLocation ? "crosshair" : "";
+    return () => { if (map.current) map.current.getCanvas().style.cursor = ""; };
+  }, [pickingLocation]);
 
   useEffect(() => {
     userMarker.current?.remove();
@@ -414,6 +409,55 @@ function addCampusBuildings(instance: MapLibreMap, collection: CampusBuildings |
     }, labelsBeforeId);
   }
   if (selectedBuildingId) instance.setFeatureState({ source: BUILDING_SOURCE, id: selectedBuildingId }, { selected: true });
+}
+
+function addHazardLayer(instance: MapLibreMap, hazards: HazardReport[], visible: boolean) {
+  if (!instance.isStyleLoaded()) return;
+  const source = instance.getSource(HAZARD_SOURCE) as GeoJSONSource | undefined;
+  const features = hazards.map((report) => ({
+    type: "Feature" as const,
+    id: report.id,
+    properties: { id: report.id, kind: report.kind, lifecycle: report.lifecycle, observation_count: report.observationCount, version: report.version },
+    geometry: { type: "Point" as const, coordinates: report.coordinates },
+  }));
+  const collection: FeatureCollection = { type: "FeatureCollection", features };
+  if (source) source.setData(collection);
+  else instance.addSource(HAZARD_SOURCE, { type: "geojson", data: collection, promoteId: "id" });
+
+  if (!instance.getLayer(HAZARD_CIRCLES)) instance.addLayer({
+    id: HAZARD_CIRCLES,
+    type: "circle",
+    source: HAZARD_SOURCE,
+    layout: { visibility: visible ? "visible" : "none" },
+    paint: {
+      "circle-radius": ["case", ["boolean", ["feature-state", "selected"], false], 19, 15],
+      "circle-color": ["match", ["get", "kind"],
+        "ice", "#367ba6", "snow", "#6684a0", "flooding", "#318b91", "blocked_path", "#b36c27",
+        "broken_light", "#9a7630", "accessibility_barrier", "#7c60a4", "construction_obstruction", "#8c6346",
+        "fallen_branch", "#568052", "#9a554b"],
+      "circle-opacity": ["match", ["get", "lifecycle"], "stale", 0.72, "possibly_cleared", 0.52, 0.96],
+      "circle-stroke-color": ["case", ["boolean", ["feature-state", "selected"], false], "#c5050c", "#fffdf7"],
+      "circle-stroke-width": ["case", ["boolean", ["feature-state", "selected"], false], 4, 2.5],
+      "circle-blur": 0.06,
+    },
+  });
+  if (!instance.getLayer(HAZARD_LABELS)) instance.addLayer({
+    id: HAZARD_LABELS,
+    type: "symbol",
+    source: HAZARD_SOURCE,
+    minzoom: 13,
+    layout: {
+      visibility: visible ? "visible" : "none",
+      "text-field": ["match", ["get", "kind"], "ice", "I", "snow", "S", "flooding", "W", "blocked_path", "P", "broken_light", "L", "accessibility_barrier", "A", "construction_obstruction", "C", "fallen_branch", "B", "•"],
+      "text-font": ["Noto Sans Regular"],
+      "text-size": 11,
+      "text-allow-overlap": true,
+      "text-ignore-placement": true,
+    },
+    paint: { "text-color": "#fff", "text-halo-color": "#29352f", "text-halo-width": 0.35 },
+  });
+  instance.setLayoutProperty(HAZARD_CIRCLES, "visibility", visible ? "visible" : "none");
+  instance.setLayoutProperty(HAZARD_LABELS, "visibility", visible ? "visible" : "none");
 }
 
 function createEventIcon(category: EventCategory): SVGSVGElement {

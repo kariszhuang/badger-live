@@ -1,0 +1,65 @@
+# Badger Live implementation journal
+
+This is the working record for implementing [the master plan](./Badger_Live_Complete_Master_Plan.md). Keep it current as code lands so the next person can tell what is real, how the parts fit together, and what still needs a project-side action.
+
+## Product boundaries
+
+- Badger Live is an independent UW–Madison campus discovery prototype, not an emergency service or an official UW service.
+- There is no login, profile, moderator console, moderation queue, private messaging, or public photo gallery in this release.
+- Community publishing is limited to ordinary, non-identifying physical conditions. Community observations stay visibly unverified; an empty map never means a place is safe or accessible.
+- Events and the UWPD daily blotter are read-only, source-linked official data. Blotter entries are historical records, not live alerts or findings of guilt.
+- Browser location is requested only after a user action. A selected map point or trusted campus place remains available when GPS is denied or imprecise.
+
+## Existing foundation to reuse
+
+- Next.js 16 App Router, TypeScript, Bun, Vitest, Playwright, and Supabase CLI.
+- MapLibre full-screen map, checked-in UW campus building geometry, and the existing responsive discovery rail/sheet.
+- UW Today event fetch, normalization, cache, and date/category filters.
+- The server-side, source-linked UWPD historical blotter integration.
+- Local Supabase is available for disposable migration and database checks. The hosted project is not linked in the local Supabase CLI.
+
+## Target architecture
+
+| Area | Responsibility |
+|---|---|
+| `src/lib/report/` | Input schemas, report categories, deterministic content/location policy, public DTOs, server-only persistence and rate limits. |
+| `src/app/api/report/` | One report submission transaction, observational rechecks, limited undo, and inaccurate/outdated flags. |
+| `src/app/api/map/` and `src/app/api/places/` | Bounded public map queries and canonical campus-place search. |
+| `src/app/api/assistant/` | Read-only source-grounded campus answers; no implicit publish capability. |
+| `supabase/migrations/` | PostGIS-safe public projections, private operational tables, RLS, atomic RPCs, and minimal Broadcast invalidation payloads. |
+| `src/components/` | Map layer controls, report composer and receipt, location picker, assistant sheet, hazard markers, and source-linked event cards. |
+
+All write routes fail closed when required database, HMAC, model/moderation, or write-enable settings are absent. The browser receives only public Supabase configuration. Raw report text and original images are not persisted or included in public data.
+
+## Work ledger
+
+| Slice | Status | Notes |
+|---|---|---|
+| Repository audit and branch | Complete | Work is on `feature/reporting`; the pre-existing `scripts/sync-events.ts` edit and user-provided master plan are preserved. |
+| Safe report domain and database | Implemented locally | Sanitized PostGIS tables, private operational schema, origin/body/location checks, persistent HMAC limits, atomic idempotent RPC, undo, flags, freshness windows, rechecks, manual hide, and retention migrations. Hosted project is untouched. |
+| Map/report/assistant UI | Implemented; reviewed in built-in browser | Location-first composer with GPS/pin/place options, privacy-safe image preparation, safe map layer, visible uncertainty/lifecycle, duplicate choices, receipt, and read-only Ask Badger sheet. Tested as a narrow mobile viewport with real local place search. |
+| Read-only assistant and event tools | Implemented; live model unverified | Answers use date-filtered UW Today data, safe observations, campus places, optional historical blotter sources, strict structured output, and source-ID allowlisting. Offline prompt-contract tests pass. |
+| Public Broadcast and resilience | Implemented and locally verified | Broadcast contains only ID/version/kind; clients debounce then refresh canonical map data and reconcile on focus, visibility, subscription, and timed polling. The local trigger and invalidation parser were checked. |
+| Import/cron and route inspection | Implemented and locally verified | Event import and expiry have bearer-protected endpoints and production schedules; route inspection warns only about nearby unverified points. Local Supabase has the four migrations applied, including the ten-minute expiry schedule; atomic retry, public-role denial, and trigger behavior were manually checked. |
+| Documentation and demo readiness | Complete for local implementation | README, deployment setup, reporting architecture, prompt contract tests, and this journal document the architecture, local workflow, operational boundaries, and hosted setup still required. |
+
+## Verification ledger
+
+Verification on the current branch:
+
+- `bun run lint`, `bun run typecheck`, `bun run test` (15 files / 71 tests), and `bun run build` all passed after the implementation changes.
+- All four migrations applied successfully to the disposable local Supabase instance. The expiry job is registered as `badger-live-expire-hazards` on `*/10 * * * *`. Manual database checks covered atomic two-item publish, idempotent retry, denied anonymous writes/private access, and minimal trigger payload.
+- Prompt tests check guardrail text and source contracts only; no OpenAI API key/model was present, so no live GPT-6 Luna trial has run.
+- `bun run db:status`: local Supabase is running; its CLI reports no linked hosted project.
+- Built-in browser review at a 481×827 viewport covered the map, report and assistant sheets, local trusted-place search, and the map-pin fallback when location was unavailable. A clipped mobile sheet was found and fixed; the new sheet geometry assertions pass.
+- Final full Playwright run: `bun run test:e2e --workers=1` passed 53 tests with 3 expected desktop skips for mobile-only sheet checks. Running this MapLibre-heavy suite with more workers can starve browser evaluation and cause timeout noise; use one worker when you need a stable acceptance run.
+- Built-in browser review at a 481×827 viewport covered the map, report and assistant sheets, local trusted-place search, and the map-pin fallback when location was unavailable. A clipped mobile sheet was found and fixed; the new sheet geometry assertions pass.
+- The local database path and browser code are verified, but a two-device staging session, a live OpenAI request, actual phone location behavior, and hosted deployment remain unverified and must be checked with project credentials before enabling writes.
+
+Before each implementation commit, rerun the repository-required lint, typecheck, unit tests, and build checks. Do not include unrelated pre-existing user edits in those commits.
+
+## External setup still to verify
+
+- Provide an OpenAI API key and verify the documented `gpt-6-luna` model is enabled for the intended project. The source allows `OPENAI_REPORT_MODEL` to be configured rather than hard-coding the model. Until a live call is run, prompt behavior is contract-tested but model behavior is not verified.
+- Confirm server-only HMAC keys, a production database URL, rate-limit backing, public MapTiler origin restrictions, and the write kill switch before enabling public submissions.
+- Hosted Supabase migrations, Vercel variables, and production deployment have not been changed by this implementation work.

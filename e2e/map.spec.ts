@@ -48,9 +48,11 @@ test("official blotter mode groups exact campus places and keeps generic residen
     await expect(count).toBeVisible();
     await expect(count).toHaveCSS("position", "absolute");
     await expect.poll(async () => {
-      const markerBox = await marker.locator(".crime-map-marker").boundingBox();
-      const countBox = await count.boundingBox();
-      return markerBox && countBox ? Math.abs(countBox.x + countBox.width / 2 - markerBox.x - markerBox.width / 2) : 99;
+      return marker.evaluate((element) => {
+        const markerBox = element.querySelector(".crime-map-marker")?.getBoundingClientRect();
+        const countBox = element.querySelector(".crime-map-marker-count")?.getBoundingClientRect();
+        return markerBox && countBox ? Math.abs(countBox.x + countBox.width / 2 - markerBox.x - markerBox.width / 2) : 99;
+      });
     }).toBeLessThan(1);
     await page.getByRole("button", { name: "Show 3 reports" }).click();
     await expect(page.locator(".crime-sheet-location").filter({ hasText: "Residence Hall" })).toBeVisible();
@@ -105,7 +107,7 @@ test("mobile location sheet sizes to its content and keeps the selected marker v
   await expect(sheet).toHaveClass(/sheet-closed/);
   await marker.click();
   await expect(sheet).toHaveClass(/sheet-half/);
-  await expect.poll(async () => sheet.evaluate((element) => element.getBoundingClientRect().height)).toBeLessThan(0.56 * 844);
+  await expect.poll(async () => sheet.evaluate((element) => element.getBoundingClientRect().height <= 0.56 * window.innerHeight + 2)).toBe(true);
   // Let MapLibre finish its focus flight before checking marker placement.
   await page.waitForTimeout(800);
   await expect.poll(async () => {
@@ -124,7 +126,7 @@ test("real calendar, filters, source and date navigation", async ({ page }, test
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto("/?date=2026-09-26");
   if (testInfo.project.name === "desktop") {
-    await expect(page.getByRole("group", { name: "Choose map mode" })).toBeVisible();
+    await expect(page.getByRole("group", { name: "Choose official information layer" })).toBeVisible();
     await expect(page.getByText(/20 events · 14 on map · 6 without map locations/)).toBeVisible();
   }
   const list = testInfo.project.name === "mobile" ? page.locator(".mobile-sheet") : page.locator(".discovery-panel");
@@ -207,7 +209,7 @@ test("mobile sheet expands from its accessible handle", async ({ page }, testInf
   await expect(page.locator(".mobile-sheet")).toHaveClass(/sheet-closed/);
 });
 
-test("mobile discovery controls leave the map dominant in events and crime modes", async ({ page }, testInfo) => {
+test("mobile discovery controls leave the map dominant in events and official info modes", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== "mobile");
   await page.route("**/api/safety/crimes?days=*", (route) => route.fulfill({
     status: 200,
@@ -226,13 +228,13 @@ test("mobile discovery controls leave the map dominant in events and crime modes
   });
   await expect.poll(visibleMapGap).toBeGreaterThan(400);
   await expect(page.getByRole("button", { name: /Explore campus buildings/ })).toHaveCount(0);
-  await page.getByRole("button", { name: "Crime" }).click();
+  await page.getByRole("button", { name: "Official info" }).click();
   await expect(page.getByRole("button", { name: "Theft / larceny" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Fraud" })).toHaveCount(0);
   await expect.poll(visibleMapGap).toBeGreaterThan(400);
 });
 
-test("crime markers mount once when switching from events to crime", async ({ page }) => {
+test("historical blotter markers mount once when switching to official info", async ({ page }) => {
   let crimeRequests = 0;
   const fixture = {
     fetchedAt: "2026-09-26T17:00:00.000Z",
@@ -262,7 +264,7 @@ test("crime markers mount once when switching from events to crime", async ({ pa
     auditWindow.__crimeMarkerObserver.observe(panel, { childList: true, subtree: true });
   });
 
-  await page.getByRole("button", { name: "Crime" }).click();
+  await page.getByRole("button", { name: "Official info" }).click();
   await expect(page.getByRole("button", { name: "1 official police blotter entry at Memorial Library" })).toBeVisible();
   await page.waitForTimeout(350);
   const audit = await page.evaluate(() => ({
@@ -398,7 +400,15 @@ test("map controls stay minimal, 2D, and at the bottom", async ({ page }) => {
   expect(controlsBottomGap).toBeLessThan(90);
 });
 
-test("campus safety toolbox prioritizes official help and keeps community reporting private", async ({ page }) => {
+test("verified help stays separate from the anonymous physical-condition report flow", async ({ page }) => {
+  await page.route("**/api/places/search?*", async (route) => {
+    const query = new URL(route.request().url()).searchParams.get("q");
+    if (query === "Van Vleck") {
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ places: [{ id: "van-vleck", sourcePlaceId: "van-vleck", name: "Van Vleck Hall", aliases: ["Van Vleck"], kind: "building", coordinates: [-89.407, 43.0748], officialSourceUrl: "https://map.wisc.edu/" }] }) });
+    } else {
+      await route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Campus place search is temporarily unavailable." }) });
+    }
+  });
   await page.goto("/?date=2026-09-26");
   await page.getByRole("button", { name: "Safety alerts and resources" }).click();
   const dialog = page.getByRole("dialog");
@@ -406,23 +416,64 @@ test("campus safety toolbox prioritizes official help and keeps community report
   await expect(dialog.getByRole("link", { name: /Immediate danger\? Call 911/ })).toHaveAttribute("href", "tel:911");
   await expect(dialog.getByRole("link", { name: "UW Campus Alerts" })).toHaveAttribute("href", "https://alerts.wisc.edu/");
   await expect(dialog.getByRole("link", { name: "Manage WiscAlerts" })).toHaveAttribute("href", "https://go.wisc.edu/wiscalerts");
+  await expect(dialog.getByText(/Badger Live is independent and is not an emergency service/)).toBeVisible();
+  await expect(dialog.getByText(/reviewer|moderation|sign in/i)).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Close" }).click();
 
-  await dialog.getByRole("button", { name: /Community reports/ }).click();
-  await expect(dialog.getByText("No reviewed community conditions are shared right now.")).toBeVisible();
+  await expect(page.getByRole("button", { name: /Report here/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: /Ask Badger/ })).toBeVisible();
+  await page.getByRole("button", { name: /Report here/ }).click();
+  const report = page.getByRole("dialog");
+  await expect(report.getByRole("heading", { name: "Report a campus condition" })).toBeVisible();
+  await expect(report.getByLabel("What did you see?")).toBeVisible();
+  await expect(report.getByRole("button", { name: /Choose on map/ })).toBeVisible();
+  await expect(report.getByText(/original message and photo are not published or saved/)).toBeVisible();
+  await expect.poll(async () => report.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    return box.left >= -1 && box.top >= -1 && box.right <= window.innerWidth + 1 && box.bottom <= window.innerHeight + 1;
+  })).toBe(true);
+  await report.getByLabel("Search a campus place").fill("Van Vleck");
+  await expect(report.getByRole("option", { name: /Van Vleck Hall/ })).toBeVisible();
+  await expect(report.getByRole("status").filter({ hasText: /Searching campus places/ })).toHaveCount(0);
+  await report.getByRole("option", { name: /Van Vleck Hall/ }).click();
+  await expect(report.locator(".report-selected-place")).toContainText("Van Vleck Hall");
+  await report.getByLabel("Search a campus place").fill("Missing place");
+  await expect(report.getByRole("status").filter({ hasText: /search is unavailable/i })).toBeVisible();
+  await report.getByRole("button", { name: "Cancel" }).click();
 
-  await dialog.getByRole("button", { name: "Report a condition" }).click();
-  await expect(dialog.getByText(/No human reviewers are assigned yet/)).toBeVisible();
-  await expect(dialog.getByLabel("Campus building or place")).toBeVisible();
-  await expect(dialog.getByText(/not monitored or sent to UW/)).toBeVisible();
-  await expect(dialog.getByRole("button", { name: "Submit private report" })).toBeDisabled();
+  await page.getByRole("button", { name: /Ask Badger/ }).click();
+  const assistant = page.getByRole("dialog");
+  await expect(assistant.getByRole("heading", { name: "What would help today?" })).toBeVisible();
+  await expect(assistant.getByText(/Asking never posts a report/)).toBeVisible();
+  await expect.poll(async () => assistant.evaluate((element) => {
+    const box = element.getBoundingClientRect();
+    return box.left >= -1 && box.top >= -1 && box.right <= window.innerWidth + 1 && box.bottom <= window.innerHeight + 1;
+  })).toBe(true);
+  await expect(assistant.getByRole("button", { name: /Post this as a report/ })).toHaveCount(0);
+  await page.route("**/api/assistant", (route) => route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "The campus assistant AI is not configured for this deployment yet." }) }));
+  await assistant.getByLabel("Ask a campus question").fill("Is it icy near Van Vleck?");
+  await assistant.getByRole("button", { name: "Ask" }).click();
+  await expect(assistant.getByRole("alert")).toContainText(/not configured/);
+  await expect(assistant.getByRole("button", { name: /Post this as a report/ })).toHaveCount(0);
 
-  const reportResponse = await page.request.get("/api/safety/reports");
-  expect(reportResponse.status()).toBe(200);
-  expect((await reportResponse.json()).reports).toEqual([]);
-  const unsafeReport = await page.request.post("/api/safety/reports", { data: { category: "crime", buildingId: "0055", observedWindow: "just-now", description: "named allegation" } });
-  expect(unsafeReport.status()).toBe(400);
-  const reviewerStatus = await page.request.get("/api/safety/moderation/status");
-  expect((await reviewerStatus.json()).reason).toBe("reviewer-unassigned");
+  expect((await page.request.get("/api/safety/reports")).status()).toBe(404);
+  expect((await page.request.get("/api/safety/moderation/status")).status()).toBe(404);
+});
+
+test("report composer can use a map pin without granting GPS access", async ({ page }) => {
+  await page.goto("/?date=2026-09-26");
+  await waitForBuildingMap(page);
+  await page.getByRole("button", { name: "Report here" }).click();
+  const report = page.getByRole("dialog");
+  await expect(report.getByRole("heading", { name: "Report a campus condition" })).toBeVisible();
+  await report.getByRole("button", { name: "Choose on map" }).click();
+  await expect(report).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Campus map" }).getByRole("status").filter({ hasText: "Tap the map where you saw the condition" })).toBeVisible();
+  await clickMapPoint(page, [-89.407, 43.0748]);
+  const pinnedReport = page.getByRole("dialog");
+  await expect(pinnedReport.getByText("Map point selected · approximate")).toBeVisible();
+  await expect(pinnedReport.getByRole("button", { name: "Clear map point" })).toBeVisible();
+  await pinnedReport.getByRole("button", { name: "Cancel" }).click();
 });
 
 test("campus building footprints load and open details directly from the map", async ({ page }) => {
