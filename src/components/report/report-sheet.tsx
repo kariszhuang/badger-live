@@ -133,6 +133,7 @@ export function ReportSheet({ open, onOpenChange, initialText = "", pinCoordinat
   const [duplicates, setDuplicates] = useState<DuplicateIssue[]>([]);
   const [decisions, setDecisions] = useState<DuplicateDecision[]>([]);
   const [receipt, setReceipt] = useState<PostedResult | null>(null);
+  const [composerExpanded, setComposerExpanded] = useState(Boolean(initialText));
   const [editingReportId, setEditingReportId] = useState<string | null>(null);
   const [editKind, setEditKind] = useState<HazardKind>("ice");
   const [savingEdit, setSavingEdit] = useState(false);
@@ -166,6 +167,7 @@ export function ReportSheet({ open, onOpenChange, initialText = "", pinCoordinat
       setLocation(nextLocation || undefined);
       setSelectedPlace(null);
       setLocationMessage(message);
+      if (!nextLocation || (nextLocation.method === "gps" && nextLocation.accuracyM > 80)) setComposerExpanded(true);
       setLocating(false);
     });
   }, []);
@@ -337,9 +339,10 @@ export function ReportSheet({ open, onOpenChange, initialText = "", pinCoordinat
 
   const needsTime = isTimeFollowup(followup);
   const unresolvedCount = duplicates.filter((issue) => !decisions.some((decision) => decision.itemIndex === issue.itemIndex)).length;
+  const composerIsExpanded = Boolean(receipt || composerExpanded || pinCoordinates);
 
-  return <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) dictation.cancel(); onOpenChange(nextOpen); }}>
-    <DialogContent className="report-dialog">
+  return <Dialog open={open} onOpenChange={(nextOpen) => { if (!nextOpen) { dictation.cancel(); setComposerExpanded(Boolean(initialText)); } onOpenChange(nextOpen); }}>
+    <DialogContent className={`report-dialog ${composerIsExpanded ? "is-expanded" : "is-collapsed"}`}>
       <DialogHeader className="report-dialog-header">
         <span className="report-kicker"><MapPin size={14} /> UNVERIFIED CAMPUS OBSERVATION</span>
         <DialogTitle>{receipt ? receiptTitle(receipt) : "Report a campus condition"}</DialogTitle>
@@ -365,30 +368,31 @@ export function ReportSheet({ open, onOpenChange, initialText = "", pinCoordinat
           ? <p className="report-privacy-note">Edit the category or undo a new report in this browser for 30 minutes. Keep this tab open if you may need these options.</p>
           : <p className="report-privacy-note">Anonymous observation counts do not prove independent confirmation.</p>}
         {error && <p className="report-error" role="alert">{error}</p>}
-        <button className="report-primary-button" type="button" onClick={() => { setReceipt(null); setError(""); setEditNotice(""); setEditError(""); setEditingReportId(null); requestGps(); }}>Report another condition</button>
+        <button className="report-primary-button" type="button" onClick={() => { setReceipt(null); setComposerExpanded(Boolean(initialText)); setError(""); setEditNotice(""); setEditError(""); setEditingReportId(null); requestGps(); }}>Report another condition</button>
       </div> : <form className="report-form" onSubmit={send}>
+        <div className="report-form-content">
         <div className="report-location-block">
-          <div className="report-location-heading"><div><span className="report-section-label">LOCATION</span><strong>{pinCoordinates ? "Map point selected · approximate" : locationMessage}</strong></div>{!pinCoordinates && <button className="report-icon-action" type="button" onClick={requestGps} disabled={locating} aria-label="Try GPS again"><LocateFixed size={17} /></button>}</div>
+          <div className="report-location-heading"><div><span className="report-section-label">LOCATION</span><strong>{pinCoordinates ? "Map point selected · approximate" : locationMessage}</strong></div>{!pinCoordinates && <button className="report-icon-action" type="button" onClick={() => { if (composerExpanded) requestGps(); else setComposerExpanded(true); }} disabled={composerExpanded && locating} aria-label={composerExpanded ? "Try GPS again" : "Change location"}><LocateFixed size={17} /></button>}</div>
           {!pinCoordinates && selectedPlace && <div className="report-selected-place"><MapPin size={15} /><span>{selectedPlace.name}</span><button type="button" onClick={() => { setLocation(undefined); setSelectedPlace(null); setLocationMessage("Choose a map point or let a named place in your description resolve the location."); }} aria-label="Clear selected place"><X size={15} /></button></div>}
-          {pinCoordinates && <div className="report-selected-place"><MapPin size={15} /><span>Map point · approximate</span><button type="button" onClick={() => { onClearPin(); setLocationMessage("Choose a map point or search for a campus place."); }} aria-label="Clear map point"><X size={15} /></button></div>}
+          {pinCoordinates && <div className="report-selected-place"><MapPin size={15} /><span>Map point · approximate</span><button type="button" onClick={() => { onClearPin(); setComposerExpanded(true); setLocationMessage("Choose a map point or search for a campus place."); }} aria-label="Clear map point"><X size={15} /></button></div>}
           {!pinCoordinates && location?.method === "gps" && location.accuracyM > 80 && <p className="report-location-warning">GPS is too broad for a precise campus report. Search for a place or choose a point on the map.</p>}
-          <div className="report-location-actions"><button className="report-secondary-button" type="button" onClick={() => { dictation.cancel(); onChooseMapPoint(); }}><MapPin size={15} />Choose on map</button><label className="report-place-search"><Search size={15} /><input aria-label="Search a campus place" placeholder="Search campus places" value={placeQuery} onChange={(event) => setPlaceQuery(event.target.value)} /></label></div>
+          <div className="report-location-actions"><button className="report-secondary-button" type="button" onClick={() => { dictation.cancel(); setComposerExpanded(false); onChooseMapPoint(); }}><MapPin size={15} />Choose on map</button><label className="report-place-search"><Search size={15} /><input aria-label="Search a campus place" placeholder="Search campus places" value={placeQuery} onChange={(event) => setPlaceQuery(event.target.value)} onFocus={() => setComposerExpanded(true)} /></label></div>
           {visiblePlaceResults.length > 0 && <div className="report-place-results" role="listbox" aria-label="Campus place results">{visiblePlaceResults.map((place) => <button type="button" role="option" aria-selected={false} key={place.id} onClick={() => choosePlace(place)}><span>{place.name}</span><small>{place.kind.replace("_", " ")}</small></button>)}</div>}
           {placeQuery.trim().length >= 2 && placeSearchMessage && <p className="report-place-status" role="status">{placeSearchMessage}</p>}
-          {!effectiveLocation && !selectedPlace && <p className="report-location-hint">You can describe a trusted campus place by name instead. GPS is requested only after you open this form.</p>}
+          {!effectiveLocation && !selectedPlace && locating && <p className="report-location-hint">Trying GPS for this report. You can choose a map point or search for a campus place instead.</p>}
         </div>
 
         {followup && <div className="report-followup" role="status"><ShieldAlert size={17} /><div><strong>One detail is needed</strong><span>{followup}</span></div></div>}
         <div className="report-text-label">
-          <div className="report-text-heading"><label className="report-section-label" htmlFor="report-description">WHAT DID YOU SEE?</label>{dictation.supported && <button className={`report-dictation-button ${dictation.listening ? "is-listening" : ""}`} type="button" aria-label={dictation.listening ? "Stop voice dictation" : "Start voice dictation"} aria-pressed={dictation.listening} aria-describedby="report-dictation-privacy" disabled={sending} onClick={() => dictation.listening ? dictation.stop() : dictation.start()}>{dictation.listening ? <MicOff size={15} /> : <Mic size={15} />}{dictation.listening ? "Stop" : "Dictate"}</button>}</div>
+          <div className="report-text-heading"><label className="report-section-label" htmlFor="report-description">WHAT DID YOU SEE?</label>{dictation.supported && <button className={`report-dictation-button ${dictation.listening ? "is-listening" : ""}`} type="button" aria-label={dictation.listening ? "Stop voice dictation" : "Start voice dictation"} aria-pressed={dictation.listening} aria-describedby="report-dictation-privacy" disabled={sending} onClick={() => { setComposerExpanded(true); if (dictation.listening) dictation.stop(); else dictation.start(); }}>{dictation.listening ? <MicOff size={15} /> : <Mic size={15} />}{dictation.listening ? "Stop" : "Dictate"}</button>}</div>
           {dictation.supported && <small id="report-dictation-privacy" className="report-dictation-privacy">Your browser&apos;s speech service may process microphone audio to make a transcript. Badger Live receives only the text; it is sent to OpenAI when you press Send.</small>}
           {!dictation.supported && <small className="report-dictation-privacy">Voice dictation isn&apos;t available in this browser. You can type or use your keyboard&apos;s dictation.</small>}
-          <textarea id="report-description" rows={4} maxLength={2000} value={text} onChange={(event) => { setText(event.target.value); setDuplicates([]); setDecisions([]); }} placeholder="For example: Very icy near the east Van Vleck ramp" required />
+          <textarea id="report-description" rows={4} maxLength={2000} value={text} onFocus={() => setComposerExpanded(true)} onChange={(event) => { setText(event.target.value); setDuplicates([]); setDecisions([]); }} placeholder="For example: Very icy near the east Van Vleck ramp" required />
           {dictation.listening && <small className="report-dictation-status" role="status">{dictation.interimText ? `Hearing: ${dictation.interimText}` : "Listening… Press Stop when you’re done."}</small>}
           {dictation.error && <small className="report-dictation-error" role="status">{dictation.error}</small>}
           <small>{text.length}/2,000 · Physical campus conditions only</small>
         </div>
-        {followup && needsTime && <label className="report-time-followup"><span>When did you see it?</span><input value={followupAnswer} onChange={(event) => setFollowupAnswer(event.target.value)} placeholder="For example: about 20 minutes ago" required /></label>}
+        {followup && needsTime && <label className="report-time-followup"><span>When did you see it?</span><input value={followupAnswer} onFocus={() => setComposerExpanded(true)} onChange={(event) => setFollowupAnswer(event.target.value)} placeholder="For example: about 20 minutes ago" required /></label>}
         <div className="report-photo-row"><label className="report-secondary-button report-photo-button"><Camera size={15} />Add private photo<input type="file" accept="image/*" capture="environment" onChange={(event) => void handlePhoto(event)} /></label>{photo && <span><Check size={13} />Photo resized and private <button type="button" onClick={() => setPhoto(null)} aria-label="Remove photo"><X size={14} /></button></span>}</div>
         {photoError && <p className="report-error" role="alert">{photoError}</p>}
 
@@ -400,6 +404,7 @@ export function ReportSheet({ open, onOpenChange, initialText = "", pinCoordinat
 
         {error && <p className="report-error" role="alert">{error}</p>}
         <p className="report-privacy-note">Your text and optional photo are sent to OpenAI for analysis. Badger Live does not save them or show them publicly; only a templated issue, approximate location, and observation time are published. Reports are unverified.</p>
+        </div>
         <div className="report-footer-actions"><button type="button" className="report-cancel-button" onClick={() => onOpenChange(false)}>Cancel</button><button className="report-primary-button" type="submit" disabled={sending || dictation.listening || !text.trim() || (duplicates.length > 0 && unresolvedCount > 0) || Boolean(followup && needsTime && !followupAnswer.trim())}>{sending ? <><span className="report-spinner" />Checking and sending…</> : duplicates.length ? "Confirm choices & send" : "Send report"}<Navigation size={15} /></button></div>
       </form>}
     </DialogContent>

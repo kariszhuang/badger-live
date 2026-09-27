@@ -319,3 +319,17 @@
 }
 .report-dictation-privacy{font-size:11px;line-height:1.5;color:#626b62}
 .report-text-label .report-dictation-status,.report-text-label .report-dictation-error{font-size:10px}
+@media(max-width:767px){
+  .report-dialog{transition:height .24s ease,max-height .24s ease}
+  .report-dialog.is-collapsed{height:46dvh;max-height:46dvh}
+  .report-dialog.is-expanded{height:90dvh;max-height:calc(94dvh - env(safe-area-inset-top))}
+  .report-form{flex:1}
+  .report-dialog.is-collapsed .report-location-actions{display:none}
+  .report-dialog.is-collapsed .report-location-hint{display:none}
+  .report-dialog.is-collapsed #report-description{height:72px;min-height:72px;resize:none}
+  .report-place-search input,.report-time-followup input{font-size:16px}
+}
+.report-form{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden;padding:1px 4px 3px 1px}
+.report-form-content{flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#d6d1c8 transparent}
+.report-footer-actions{flex:none}
+@media(max-width:767px){.report-dialog.is-collapsed .report-footer-actions{display:none}}

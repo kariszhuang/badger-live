@@ -467,14 +467,74 @@ test("report composer can use a map pin without granting GPS access", async ({ p
   await page.getByRole("button", { name: "Report here" }).click();
   const report = page.getByRole("dialog");
   await expect(report.getByRole("heading", { name: "Report a campus condition" })).toBeVisible();
+  if ((await report.getAttribute("class"))?.includes("is-collapsed")) await report.getByRole("button", { name: "Change location" }).click();
+  await expect(report).toHaveClass(/is-expanded/);
   await report.getByRole("button", { name: "Choose on map" }).click();
   await expect(report).toHaveCount(0);
   await expect(page.getByRole("region", { name: "Campus map" }).getByRole("status").filter({ hasText: "Tap the map where you saw the condition" })).toBeVisible();
   await clickMapPoint(page, [-89.407, 43.0748]);
   const pinnedReport = page.getByRole("dialog");
   await expect(pinnedReport.getByText("Map point selected · approximate")).toBeVisible();
+  await expect(pinnedReport).toHaveClass(/is-expanded/);
   await expect(pinnedReport.getByRole("button", { name: "Clear map point" })).toBeVisible();
+  await expect(pinnedReport.locator(".report-footer-actions")).toBeVisible();
   await pinnedReport.getByRole("button", { name: "Cancel" }).click();
+});
+
+test("mobile report composer opens compactly and expands on text focus", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== "mobile");
+  await page.context().grantPermissions(["geolocation"]);
+  await page.context().setGeolocation({ latitude: 43.075, longitude: -89.405, accuracy: 18 });
+  await page.goto("/?date=2026-09-26");
+  await waitForBuildingMap(page);
+  await page.getByRole("button", { name: "Report here" }).click();
+
+  const report = page.getByRole("dialog");
+  await expect(report).toHaveClass(/is-collapsed/);
+  const compactRatio = await report.evaluate((element) => element.getBoundingClientRect().height / window.innerHeight);
+  expect(compactRatio).toBeGreaterThan(0.42);
+  expect(compactRatio).toBeLessThan(0.52);
+  const description = report.getByLabel("What did you see?");
+  await expect(description).toHaveCSS("font-size", "16px");
+  await expect(report.getByLabel("Search a campus place")).toHaveCSS("font-size", "16px");
+  const visibleDescriptionHeight = await description.evaluate((element) => {
+    const input = element.getBoundingClientRect();
+    const sheet = element.closest("[role=dialog]")!.getBoundingClientRect();
+    return Math.min(input.bottom, sheet.bottom) - Math.max(input.top, sheet.top);
+  });
+  expect(visibleDescriptionHeight).toBeGreaterThanOrEqual(60);
+
+  await description.click();
+  await expect(report).toHaveClass(/is-expanded/);
+  await expect.poll(async () => report.evaluate((element) => element.getBoundingClientRect().height / window.innerHeight)).toBeGreaterThan(0.8);
+  await expect(report.locator(".report-footer-actions")).toBeVisible();
+  await expect(report.getByRole("button", { name: "Send report" })).toBeVisible();
+  const widths = await page.evaluate(() => ({ viewport: window.innerWidth, document: document.documentElement.scrollWidth }));
+  expect(widths.document).toBeLessThanOrEqual(widths.viewport);
+  await expect(page.locator(".map-panel")).toBeVisible();
+});
+
+test("GPS denial expands the composer and exposes manual location choices", async ({ page }) => {
+  await page.addInitScript(() => {
+    const deniedGeolocation = {
+      getCurrentPosition(_success: PositionCallback, error?: PositionErrorCallback | null) {
+        const denial = { code: 1, message: "Permission denied", PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3 } as GeolocationPositionError;
+        window.setTimeout(() => error?.(denial), 0);
+      },
+    };
+    Object.defineProperty(navigator, "geolocation", { configurable: true, value: deniedGeolocation });
+  });
+  await page.goto("/?date=2026-09-26");
+  await page.getByRole("button", { name: "Report here" }).click();
+
+  const report = page.getByRole("dialog");
+  await expect(report.locator(".report-location-heading strong")).toContainText("Location access is off");
+  await expect(report).toHaveClass(/is-expanded/);
+  await expect(report.getByRole("button", { name: "Choose on map" })).toBeVisible();
+  await expect(report.getByLabel("Search a campus place")).toBeVisible();
+  await expect(report.locator(".report-footer-actions")).toBeVisible();
+  await expect(report).not.toContainText("GPS is requested only after you open this form");
+  await expect(report.getByRole("button", { name: "Send report" })).toBeDisabled();
 });
 
 test("voice dictation is opt-in and sends transcript text only after Send", async ({ page }) => {
