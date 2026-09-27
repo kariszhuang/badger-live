@@ -542,6 +542,51 @@ test("same-issue receipt reports the added observation instead of zero reports",
   expect(submissions[1].duplicateDecisions).toEqual([{ itemIndex: 0, choice: "same", reportId: candidateId }]);
 });
 
+test("a fresh report receipt can correct only its safe category using the local capability", async ({ page }) => {
+  const reportId = "00000000-0000-4000-8000-000000000556";
+  const token = `${reportId}.local-capability-token-with-enough-entropy`;
+  const createdAt = "2026-09-27T12:00:00.000Z";
+  const initialReport = {
+    id: reportId, kind: "ice", title: "Icy surface", coordinates: [-89.407, 43.071], placeId: null,
+    locationMethod: "pin", locationAccuracyM: null, reportedSeverity: "unknown", observationLabel: "unverified",
+    lifecycle: "active", observationCount: 1, observedAt: createdAt, lastObservedAt: createdAt,
+    expiresAt: "2026-09-27T18:00:00.000Z", version: 1,
+  };
+  const editedReport = { ...initialReport, kind: "broken_light", title: "Broken exterior light", version: 2 };
+  let editBody: Record<string, unknown> | null = null;
+  await page.route("**/api/map/reports?bbox=*", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ reports: [] }) }));
+  await page.route("**/api/report/publish", (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ outcome: "posted", postedCount: 1, recheckedCount: 0, idempotent: false, reports: [initialReport], capabilities: [{ reportId, token }] }) }));
+  await page.route(`**/api/report/${reportId}/edit`, async (route) => {
+    editBody = route.request().postDataJSON() as Record<string, unknown>;
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ updated: true, report: editedReport }) });
+  });
+
+  await page.goto("/?date=2026-09-27");
+  await page.getByRole("button", { name: "Report here" }).click();
+  const receipt = page.getByRole("dialog");
+  await receipt.getByLabel("What did you see?").fill("Ice near the ramp");
+  await receipt.getByRole("button", { name: "Send report" }).click();
+  await expect(receipt.getByRole("heading", { name: "Report posted" })).toBeVisible();
+  await expect(receipt.getByRole("button", { name: /Edit category/ })).toBeVisible();
+
+  await receipt.getByRole("button", { name: /Edit category/ }).click();
+  const cardFitsViewport = await receipt.locator(".report-receipt-card").evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    return element.scrollWidth <= element.clientWidth && bounds.left >= 0 && bounds.right <= window.innerWidth;
+  });
+  expect(cardFitsViewport).toBe(true);
+  await receipt.getByLabel("Correct the category").selectOption("broken_light");
+  await receipt.getByRole("button", { name: "Save category" }).click();
+
+  await expect(receipt.locator(".report-receipt-card strong")).toHaveText("Broken exterior light");
+  await expect(receipt.getByRole("status")).toContainText("Category updated");
+  expect(editBody).not.toBeNull();
+  expect(Object.keys(editBody!).sort()).toEqual(["capability", "expectedVersion", "kind", "visitorId"]);
+  expect(editBody).toMatchObject({ capability: token, expectedVersion: 1, kind: "broken_light" });
+  expect(editBody).not.toHaveProperty("text");
+  expect(editBody).not.toHaveProperty("photo");
+});
+
 test("campus building footprints load and open details directly from the map", async ({ page }) => {
   const buildingsResponse = page.waitForResponse((response) => response.url().endsWith("/data/uw-campus-buildings.geojson") && response.ok());
   await page.goto("/?date=2026-09-26");

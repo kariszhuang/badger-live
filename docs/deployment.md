@@ -38,7 +38,7 @@ Use separate projects and credentials for production and preview/staging. Requir
 | `OPENAI_REPORT_MODEL` | Server configuration | Defaults to documented `gpt-6-luna`; verify project access before use. |
 | `OPENAI_ASSISTANT_MODEL` | Server configuration | Optional separate read-only assistant model. |
 | `REPORT_FINGERPRINT_HMAC_KEY` | Server secret | HMAC key for pseudonymous visitor/network rate-limit buckets and request digests. |
-| `REPORT_CAPABILITY_HMAC_KEY` | Server secret | HMAC key for report IDs and undo capabilities. |
+| `REPORT_CAPABILITY_HMAC_KEY` | Server secret | HMAC key for report IDs and limited report capabilities. |
 | `REPORT_WRITES_ENABLED` | Server configuration | Must be the exact string `true` to enable report writes. Defaults off. |
 | `CRON_SECRET` | Server secret | Random bearer credential for the scheduled event import route. |
 
@@ -77,7 +77,7 @@ The import refreshes the current America/Chicago date and the following seven ev
 - Public browser code has only `NEXT_PUBLIC_*` values. The browser never receives a Postgres connection or a capability hash.
 - After a production build, `bun run audit:client-bundles` loads environment files with Next.js precedence, then scans browser-facing static assets and prerendered responses for raw configured server-only values. It prints variable names only if it finds a match. Run it in the same build environment to inspect that environment's configured values; it cannot verify secrets that were not present there or detect encoded/transformed values, so it complements source and deployment review.
 - RLS and grants allow public reads of sanitized tables only. Private operational data lives in the non-exposed `internal` schema. All inserts, updates, and deletion operations use server-only SQL functions.
-- `REPORT_WRITES_ENABLED=false` turns off publish, recheck, undo, and flag routes. Set it back to false immediately if abuse or operational failures appear.
+- `REPORT_WRITES_ENABLED=false` turns off publish, recheck, undo, category-edit, and flag routes. Set it back to false immediately if abuse or operational failures appear.
 - Public reports contain a fixed category title, approximate point/place, user-reported severity, timestamps, anonymous count, and lifecycle. They do not contain original text, original images, contact details, or a person identity.
 - Use the trusted SQL editor for a developer takedown. Review the exact report ID first:
 

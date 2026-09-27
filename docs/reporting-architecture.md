@@ -8,7 +8,7 @@ This note documents the implementation behind the map's community observation la
 2. **Bounded request:** the publish handler checks same-site Origin when present, a 4 MiB streamed request cap, strict Zod input, campus coordinates, GPS age/accuracy, and a server-side kill switch.
 3. **Eligibility:** deterministic checks block obvious contact details, emergency requests, and person/crime allegation wording. OpenAI moderation must succeed. The Responses API then returns a strict multi-issue schema; code validates its output, resolves trusted place IDs, derives severity only from exact source text, and rejects observations outside per-kind freshness windows.
 4. **Duplicate choice:** PostGIS suggests same-kind reports within 25 metres. The reporter chooses **Same issue** or **Separate issue** when the match is ambiguous. The database locks and revalidates a chosen report before adding its anonymous observation.
-5. **Atomic publish:** one server-only `publish_report_batch` RPC creates every eligible report and private undo capability inside a transaction. The request digest and batch ID make an identical retry return the same receipt; changed payload reuse is rejected. The browser shows “posted” only after this RPC succeeds.
+5. **Atomic publish:** one server-only `publish_report_batch` RPC creates every eligible report and private undo/edit capability inside a transaction. The request digest and batch ID make an identical retry return the same receipt; changed payload reuse is rejected. The browser shows “posted” only after this RPC succeeds.
 6. **Map refresh:** a Postgres trigger broadcasts only `{ id, version, kind }` on public `campus:hazards`. Broadcast is an invalidation hint, not data: every client debounces and fetches the canonical bounded `/api/map/reports` response. The hook also refreshes on reconnect, tab visibility, and a 90-second foreground poll.
 
 ## Public data contract
@@ -19,13 +19,13 @@ Operational data is under the non-exposed `internal` schema:
 
 - `report_submissions`: HMAC request digest and safe receipt for seven days.
 - `report_observations`: HMAC browser key and action history; old entries expire after 90 days.
-- `report_capabilities`: SHA-256 hash of a one-time undo token, for at most 30 minutes.
+- `report_capabilities`: SHA-256 hash of a one-time browser capability, for at most 30 minutes. It can undo a recent new report or correct only its safe category.
 - `report_flags`: hashed inaccurate/outdated/misplaced signals, retained for at most 90 days. Five distinct recent browser HMACs can hide a row automatically.
 - `api_rate_limit_buckets`: HMAC keys and counters, cleaned after two days.
 - `import_runs`: source/job outcome for operational diagnosis.
 - `outbox`: reserved for future server-only retry work; no public listener or user notification is wired to it.
 
-The browser `visitorId` is a random convenience UUID only. The server derives HMACs from it and the edge-provided network address. This reduces accidental repeats and supports rate limits; it cannot prove a person or device is unique, and it is never authorization. Only the unguessable undo capability authorizes a recent retraction.
+The browser `visitorId` is a random convenience UUID only. The server derives HMACs from it and the edge-provided network address. This reduces accidental repeats and supports rate limits; it cannot prove a person or device is unique, and it is never authorization. Only the unguessable capability authorizes a recent retraction or category correction. A category correction requires the report's current version, active lifecycle, one observation, and creation within 30 minutes; it changes only the enum and safe templated title. It never stores or resends the original text or photo, and a concurrent observation makes the edit fail.
 
 ## Lifecycle and retention
 
@@ -48,6 +48,7 @@ An accepted observation expires from `last_observed_at` plus its category window
 | Publish | 4/hour | 6/day |
 | Observe | 20/hour | 6/hour |
 | Undo | 10/hour | 5/hour |
+| Category edit | 10/hour | 5/hour |
 | Inaccurate signal | 12/hour | 12/day |
 | Report interpretation | 30/hour | 60/day |
 | Ask Badger | 20/minute | 80/day |
@@ -66,6 +67,7 @@ Limits are stored atomically in Postgres. Missing database/HMAC keys, unavailabl
 | `GET /api/places/search?q=...` | Search the trusted campus-place catalog. |
 | `POST /api/report/:id/observe` | Rate-limited `still_there` or `possibly_cleared` anonymous signal. |
 | `POST /api/report/:id/undo` | Recent undo requiring the original one-time token. |
+| `POST /api/report/:id/edit` | Corrects only the safe category for a fresh single-observation report using its local capability and expected version. |
 | `POST /api/report/:id/flag` | Rate-limited inaccurate/outdated/misplaced signal. |
 | `POST /api/routes/inspect` | Candidate route proximity check; a clear response never guarantees safety/accessibility. |
 | `POST /api/routes/plan` | Rate-limited walking route between two trusted campus places; calls OpenRouteService from the server and checks the candidate path against current unverified reports. Browser GPS is never submitted. |

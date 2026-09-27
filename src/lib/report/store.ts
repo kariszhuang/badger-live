@@ -298,6 +298,33 @@ export async function undoHazard(reportId: string, capabilityHash: string) {
   }
 }
 
+export async function editHazardCategory(reportId: string, capabilityHash: string, kind: HazardKind, expectedVersion: number) {
+  const sql = database();
+  if (!sql) throw new ReportStoreError("unavailable");
+  try {
+    const report = await sql.begin(async (transaction) => {
+      const result = await transaction<{ updated: boolean }[]>`
+        select public.edit_hazard_report_category(${reportId}::uuid, ${capabilityHash}, ${kind}, ${expectedVersion}) as updated
+      `;
+      if (result[0]?.updated !== true) return null;
+      const rows = await transaction<HazardRow[]>`
+        select r.id, r.kind, r.public_title,
+          extensions.st_x(r.point::extensions.geometry) as longitude,
+          extensions.st_y(r.point::extensions.geometry) as latitude, r.place_id, r.location_method,
+          r.location_accuracy_m, r.reported_severity, r.observation_label, r.lifecycle,
+          r.observation_count, r.observed_at, r.last_observed_at, r.expires_at, r.version
+        from public.hazard_reports r where r.id = ${reportId}::uuid
+      `;
+      return rows[0] ? toHazardReport(rows[0]) : null;
+    });
+    unavailableUntil = 0;
+    return report;
+  } catch {
+    databaseFailed("category edit");
+    throw new ReportStoreError("unavailable");
+  }
+}
+
 export async function flagHazard(reportId: string, browserHmac: string, reason: "inaccurate" | "outdated" | "misplaced") {
   const sql = database();
   if (!sql) throw new ReportStoreError("unavailable");

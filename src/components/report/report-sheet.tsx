@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
-import { Camera, Check, LocateFixed, MapPin, Navigation, RotateCcw, Search, ShieldAlert, X } from "lucide-react";
+import { Camera, Check, LocateFixed, MapPin, Navigation, Pencil, RotateCcw, Search, ShieldAlert, X } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import type { CampusPlace, DuplicateCandidate, HazardKind, HazardReport, ReportLocation } from "@/lib/report/types";
+import { hazardKinds, type CampusPlace, type DuplicateCandidate, type HazardKind, type HazardReport, type ReportLocation } from "@/lib/report/types";
 import { getVisitorId, newSubmissionId, saveUndoCapabilities } from "@/lib/report/visitor-id";
 
 type DuplicateIssue = { itemIndex: number; title: string; candidates: DuplicateCandidate[] };
@@ -125,6 +125,11 @@ export function ReportSheet({ open, onOpenChange, initialText = "", pinCoordinat
   const [duplicates, setDuplicates] = useState<DuplicateIssue[]>([]);
   const [decisions, setDecisions] = useState<DuplicateDecision[]>([]);
   const [receipt, setReceipt] = useState<PostedResult | null>(null);
+  const [editingReportId, setEditingReportId] = useState<string | null>(null);
+  const [editKind, setEditKind] = useState<HazardKind>("ice");
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [editError, setEditError] = useState("");
+  const [editNotice, setEditNotice] = useState("");
   const generation = useRef(0);
   const gpsCleanup = useRef<(() => void) | null>(null);
   const requestFingerprint = useRef("");
@@ -238,6 +243,9 @@ export function ReportSheet({ open, onOpenChange, initialText = "", pinCoordinat
       if (result.outcome === "posted" && Array.isArray(result.reports) && Array.isArray(result.capabilities)) {
         const posted = result as unknown as PostedResult;
         saveUndoCapabilities(posted.capabilities);
+        setEditNotice("");
+        setEditError("");
+        setEditingReportId(null);
         setReceipt(posted);
         setText("");
         setFollowupAnswer("");
@@ -288,6 +296,30 @@ export function ReportSheet({ open, onOpenChange, initialText = "", pinCoordinat
     } catch (reason) { setError(reason instanceof Error ? reason.message : "This report can no longer be undone."); }
   };
 
+  const editCategory = async (event: FormEvent<HTMLFormElement>, report: ReceiptReport) => {
+    event.preventDefault();
+    if (!receipt) return;
+    const capability = receipt.capabilities.find((item) => item.reportId === report.id)?.token;
+    if (!capability || editKind === report.kind) return;
+    setSavingEdit(true);
+    setEditError("");
+    setEditNotice("");
+    try {
+      const response = await fetch(`/api/report/${report.id}/edit`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ visitorId: getVisitorId(), capability, kind: editKind, expectedVersion: report.version }),
+      });
+      const result = await response.json() as { error?: string; updated?: boolean; report?: ReceiptReport };
+      if (!response.ok || result.updated !== true || !result.report) throw new Error(errorText(result, "This report has changed or is no longer editable."));
+      setReceipt((current) => current ? { ...current, reports: current.reports.map((item) => item.id === report.id ? { ...item, ...result.report } : item) } : current);
+      setEditingReportId(null);
+      setEditNotice("Category updated.");
+      onReportsPosted([result.report]);
+    } catch (reason) {
+      setEditError(reason instanceof Error ? reason.message : "This report could not be edited.");
+    } finally { setSavingEdit(false); }
+  };
+
   const needsTime = isTimeFollowup(followup);
   const unresolvedCount = duplicates.filter((issue) => !decisions.some((decision) => decision.itemIndex === issue.itemIndex)).length;
 
@@ -303,13 +335,22 @@ export function ReportSheet({ open, onOpenChange, initialText = "", pinCoordinat
         <div className="report-receipt-summary"><span className="report-receipt-check"><Check size={19} /></span><div><strong>{receiptSummary(receipt)}</strong><small>Unverified · anonymous browser observations</small></div></div>
         <div className="report-receipt-list">{receipt.reports.map((report) => <article className="report-receipt-card" key={report.id}>
           <div><strong>{report.title}</strong><small>{kindLabels[report.kind]} · Unverified · {report.locationMethod === "gps" ? "Approximate GPS" : report.locationMethod === "pin" ? "Map point" : "Campus place"}{report.recheckStatus === "counted" ? " · Observation added" : report.recheckStatus === "recently-counted" ? " · Recent observation already counted" : ""}</small></div>
-          <div className="report-receipt-actions"><button type="button" onClick={() => onViewReport(report)}>View on map</button>{receipt.capabilities.some((item) => item.reportId === report.id) && <button type="button" className="report-undo-button" onClick={() => void undo(report.id)}><RotateCcw size={13} />Undo</button>}</div>
+          <div className="report-receipt-actions"><button type="button" onClick={() => onViewReport(report)}>View on map</button>{receipt.capabilities.some((item) => item.reportId === report.id) && <>
+            <button type="button" className="report-edit-button" disabled={savingEdit} onClick={() => { setEditingReportId(report.id); setEditKind(report.kind); setEditError(""); setEditNotice(""); }}><Pencil size={13} />Edit category</button>
+            <button type="button" className="report-undo-button" disabled={savingEdit} onClick={() => void undo(report.id)}><RotateCcw size={13} />Undo</button>
+          </>}</div>
+          {editingReportId === report.id && <form className="report-edit-form" onSubmit={(event) => void editCategory(event, report)}>
+            <label htmlFor="report-category-edit">Correct the category<select id="report-category-edit" value={editKind} onChange={(event) => setEditKind(event.target.value as HazardKind)}>{hazardKinds.map((kind) => <option key={kind} value={kind}>{kindLabels[kind]}</option>)}</select></label>
+            <div><button type="button" className="report-edit-cancel" disabled={savingEdit} onClick={() => { setEditingReportId(null); setEditError(""); }}>Cancel</button><button type="submit" className="report-edit-save" disabled={savingEdit || editKind === report.kind}>{savingEdit ? "Saving…" : "Save category"}</button></div>
+            {editError && <p className="report-error" role="alert">{editError}</p>}
+          </form>}
         </article>)}</div>
+        {editNotice && <p className="report-success" role="status">{editNotice}</p>}
         {receipt.capabilities.length > 0
-          ? <p className="report-privacy-note">Undo is available in this browser for 30 minutes. Keep this tab open if you may need it.</p>
+          ? <p className="report-privacy-note">Edit the category or undo a new report in this browser for 30 minutes. Keep this tab open if you may need these options.</p>
           : <p className="report-privacy-note">Anonymous observation counts do not prove independent confirmation.</p>}
         {error && <p className="report-error" role="alert">{error}</p>}
-        <button className="report-primary-button" type="button" onClick={() => { setReceipt(null); setError(""); requestGps(); }}>Report another condition</button>
+        <button className="report-primary-button" type="button" onClick={() => { setReceipt(null); setError(""); setEditNotice(""); setEditError(""); setEditingReportId(null); requestGps(); }}>Report another condition</button>
       </div> : <form className="report-form" onSubmit={send}>
         <div className="report-location-block">
           <div className="report-location-heading"><div><span className="report-section-label">LOCATION</span><strong>{pinCoordinates ? "Map point selected · approximate" : locationMessage}</strong></div>{!pinCoordinates && <button className="report-icon-action" type="button" onClick={requestGps} disabled={locating} aria-label="Try GPS again"><LocateFixed size={17} /></button>}</div>
