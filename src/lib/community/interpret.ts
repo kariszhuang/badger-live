@@ -1,6 +1,5 @@
 import "server-only";
 import { z } from "zod";
-import { rankCampusPlaces } from "@/lib/campus-place-catalog";
 import type { CampusPlace } from "@/lib/report/types";
 import { callOpenAI, parseOpenAIStructuredOutput } from "@/lib/report/openai-client";
 import { communityKinds } from "./types";
@@ -36,9 +35,24 @@ function validInstant(value: string | null) {
   return Number.isFinite(time) ? new Date(time).toISOString() : null;
 }
 
+function normalizePhrase(value: string) {
+  return value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+}
+
+function explicitlyNamedPlaces(places: CampusPlace[], text: string) {
+  const message = " " + normalizePhrase(text) + " ";
+  return places.map((place) => {
+    const names = [place.name, ...place.aliases].map(normalizePhrase).filter((name) => name.length >= 6);
+    const longestMention = Math.max(0, ...names.filter((name) => message.includes(" " + name + " ")).map((name) => name.length));
+    return { place, longestMention };
+  }).filter((item) => item.longestMention > 0)
+    .sort((a, b) => b.longestMention - a.longestMention || a.place.name.localeCompare(b.place.name))
+    .slice(0, 18).map((item) => item.place);
+}
+
 export async function interpretCommunityDescription(input: { text: string; places: CampusPlace[]; now?: Date }) {
   const now = input.now || new Date();
-  const candidates = rankCampusPlaces(input.places, input.text, 18);
+  const candidates = explicitlyNamedPlaces(input.places, input.text);
   const body = await callOpenAI("responses", {
     model: process.env.OPENAI_REPORT_MODEL?.trim() || "gpt-6-luna",
     store: false,
