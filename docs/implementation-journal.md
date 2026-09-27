@@ -51,22 +51,29 @@ All write routes fail closed when required database, HMAC, model/moderation, or 
 - The safety sheet now has source-linked UWPD and University Housing lost-property guidance. The deployment guide has an exact-ID/exact-title procedure for deleting demo rows safely.
 - Route-level tests exercise one-request multi-issue publication, relative issue location inheritance, location follow-up instead of GPS fallback, pin/place precedence, person-allegation rejection before model calls, and duplicate choice without an early write. Pure location tests cover six precedence and fallback cases.
 - The single-send product flow deliberately runs semantic intake inside `/api/report/publish` so one explicit Send can screen, interpret, deduplicate, and commit atomically. `/api/report/interpret` remains a read-only Ask-mode extraction helper; it is not an extra report-composer round trip.
+- Report and assistant sheets now disclose that their inputs and selected campus data are sent to OpenAI; local persistence/public display limits are stated in the UI and README.
+- The production `interpretReport` request is shared with a developer-only live prompt-evaluation CLI. Eight synthetic scenarios cover multi-issue extraction, location precedence, follow-up, Ask mode, emergency handling, and instruction injection. The script cannot publish or call the database; its scorer has offline unit tests.
 - Route geometry is accepted only when it has 2–5,000 coordinates, stays inside campus map bounds, and is at most 10 km. `/api/routes/plan` resolves catalog IDs server-side and returns a clear missing-provider error instead of a fabricated path. The map creates its route source and line layers only after receiving a usable candidate, which keeps map startup and campus-building setup independent.
 
 ## Verification ledger
 
 Verification on the current branch:
 
-- `bun run lint`, `bun run typecheck`, `bun run test` (20 files / 93 tests), and `bun run build` all passed after the route-planning changes.
+- After the privacy and prompt-evaluation changes, `bun run lint`, `bun run typecheck`, and `bun run test` (21 files / 96 tests) passed. `BADGER_NEXT_DIST_DIR=.next-verify bun run build` also passed; the separate ignored output directory kept the pre-existing local dev server's `.next` cache intact.
 - All four migrations applied successfully to the disposable local Supabase instance. The expiry job is registered as `badger-live-expire-hazards` on `*/10 * * * *`. Manual database checks covered atomic two-item publish, idempotent retry, denied anonymous writes/private access, and minimal trigger payload.
 - Prompt tests check guardrail text and source contracts only; no OpenAI API key/model was present, so no live GPT-6 Luna trial has run.
+- `bun run eval:report-prompt -- --repeats 3` is ready for live GPT-6 Luna evaluation. It was not run because no `OPENAI_API_KEY` or `OPENAI_REPORT_MODEL` is configured. See [the prompt evaluation record](./prompt-evaluation.md).
+- Running that CLI without the required credentials returned its explicit no-request status before making any network call.
 - `bun run db:status`: local Supabase is running; its CLI reports no linked hosted project.
 - Built-in browser review at 390×844 covered the live campus map and building footprints, route place search and the safe no-provider-key message, plus the Ask Badger sheet and quick-question affordance. No browser GPS permission was granted. MapTiler's style emitted a missing `transportation:road_` image warning; the base map, event markers, and building footprints rendered.
+- Additional built-in browser review on the desktop map verified the report composer, graceful GPS denial, map-pin selection, the new OpenAI data-use notice, and Ask Badger's read-only/privacy copy. Place search on the already-running local Next server returned 503 because its inherited `DATABASE_URL` in `.env.development.local` points to a remote host that is unavailable. No write endpoint was called; further DB-backed manual checks were stopped pending an isolated local-DB app configuration.
 - Final full Playwright run: `bun run test:e2e --workers=1` passed 55 tests with 3 expected desktop skips for mobile-only sheet checks. The run also verified that successful mocked route planning posts only trusted place IDs, renders the nearby unverified warning and clears the candidate route. Running this MapLibre-heavy suite with more workers can starve browser evaluation and cause timeout noise; use one worker when you need a stable acceptance run.
 - The first full run after adding route layers exposed that empty route layers created during map startup prevented campus-building readiness. Creating those layers only when a candidate route exists fixed the issue; focused desktop/mobile checks and the subsequent complete suite passed.
 - The local database path and browser code are verified, but a two-device staging session, a live OpenAI request, actual phone location behavior, and hosted deployment remain unverified and must be checked with project credentials before enabling writes.
 
 Before each implementation commit, rerun the repository-required lint, typecheck, unit tests, and build checks. Do not include unrelated pre-existing user edits in those commits.
+
+See the [acceptance matrix](./acceptance-matrix.md) for scenario-by-scenario evidence and external checks still outstanding.
 
 ## External setup still to verify
 

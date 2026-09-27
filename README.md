@@ -31,6 +31,7 @@ Supabase Studio is available at `http://127.0.0.1:54323`. The app does not silen
 - No accounts, login, user profiles, moderator console, human review queue, private messaging, or public report photos.
 - Report mode is an explicit publish action. Ask Badger is read-only until a user chooses **Post this as a report**.
 - Only templated, non-identifying physical-condition reports can reach the public map. Original text and private images are processed transiently and are not saved or returned publicly.
+- Report text, optional photos, Ask Badger questions, and selected campus source data are sent to OpenAI for AI processing. Badger Live does not save report text/photos or assistant questions. Public reports contain only constrained issue details and approximate location.
 - Community observations are always unverified. Anonymous counts are not unique or trustworthy people, and no clear result means a place is safe or accessible.
 - Verified official event and help links remain separate from community observations. UWPD blotter entries are historical source records, not live alerts or findings of guilt.
 
@@ -39,6 +40,10 @@ Supabase Studio is available at `http://127.0.0.1:54323`. The app does not silen
 `/api/events?date=YYYY-MM-DD` uses the official UW Today calendar. The normalized cache expires after six hours; cache misses refresh UW Today, and a saved day is shown as stale only when the source is unavailable. `bun run sync:events [YYYY-MM-DD]` refreshes an explicitly requested date. Each event is validated independently; events without verified coordinates stay in the list without a map pin. Dates use America/Chicago.
 
 Campus building geometry is a checked-in map snapshot. `bun run sync:buildings` refreshes it. The official safety panel links to UW emergency, alert, police, SAFEwalk, and facilities channels. Crime mode displays a limited, filtered, source-linked view of the public UWPD historical blotter; a pin names a campus building, not an exact incident location.
+
+The map's **Check walking route** tool searches two trusted campus places and asks the server for an OpenRouteService walking candidate. The client does not submit GPS to that provider. Active unverified observations near the candidate route appear as warnings; a clear result never establishes safety or accessibility. Configure the optional server-only `OPENROUTESERVICE_API_KEY` to enable live directions; without it, Badger Live does not invent a route.
+
+Use the [master-plan acceptance matrix](docs/acceptance-matrix.md) to distinguish local evidence from hosted/device checks, and the [report prompt evaluation guide](docs/prompt-evaluation.md) to run repeatable GPT-6 Luna evaluations when project credentials are available.
 
 ## Verification
 

@@ -305,7 +305,7 @@ export function ReportSheet({ open, onOpenChange, initialText = "", pinCoordinat
         </article>)}</section>}
 
         {error && <p className="report-error" role="alert">{error}</p>}
-        <p className="report-privacy-note">Only a safe category, approximate point, and observation time appear on the map. Reports are unverified and can be inaccurate.</p>
+        <p className="report-privacy-note">Your text and optional photo are sent to OpenAI for analysis. Badger Live does not save them or show them publicly; only a templated issue, approximate location, and observation time are published. Reports are unverified.</p>
         <div className="report-footer-actions"><button type="button" className="report-cancel-button" onClick={() => onOpenChange(false)}>Cancel</button><button className="report-primary-button" type="submit" disabled={sending || !text.trim() || (duplicates.length > 0 && unresolvedCount > 0) || Boolean(followup && needsTime && !followupAnswer.trim())}>{sending ? <><span className="report-spinner" />Checking and sending…</> : duplicates.length ? "Confirm choices & send" : "Send report"}<Navigation size={15} /></button></div>
       </form>}
     </DialogContent>

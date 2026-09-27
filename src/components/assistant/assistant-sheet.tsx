@@ -59,6 +59,7 @@ export function AssistantSheet({ open, onOpenChange, date, initialQuery = "", on
         <textarea id="assistant-question" rows={3} maxLength={1200} value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Try: Any free talks near Union South tonight?" />
         <div className="assistant-form-footer"><span>{query.length}/1,200</span><button type="submit" disabled={loading || !query.trim()}>{loading ? "Checking sources…" : "Ask"}<ArrowUpRight size={15} /></button></div>
       </form>
+      <p className="assistant-privacy-note">Your question and selected campus data are sent to OpenAI for AI processing. Badger Live does not save your question.</p>
       {!answer && !error && !loading && <div className="assistant-suggestions"><span className="report-section-label">QUICK QUESTIONS</span>{suggestions.map((suggestion) => <button type="button" key={suggestion} onClick={() => setQuery(suggestion)}><MessageCircle size={14} />{suggestion}</button>)}</div>}
       {loading && <div className="assistant-loading" role="status"><span className="loading-orbit" />Checking source data…</div>}
       {error && <p className="report-error" role="alert">{error}</p>}
