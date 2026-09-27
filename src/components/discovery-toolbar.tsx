@@ -60,7 +60,7 @@ export function DiscoveryToolbar({
         <span className="brand-caption">UW–MADISON</span>
       </div>
       <ModeSwitcher value={mode} onChange={onModeChange} />
-      <button type="button" className={`toolbar-list-button ${listOpen ? "is-open" : ""}`} onClick={onToggleList} aria-label={listOpen ? `Close ${mode === "crime" ? "report list" : "event list"}` : `Show ${resultCount} ${mode === "crime" ? "reports" : "events"}`} aria-expanded={listOpen}>
+      <button type="button" className={`toolbar-list-button ${listOpen ? "is-open" : ""}`} onClick={onToggleList} aria-label={listOpen ? `Hide ${mode === "crime" ? "report" : "event"} list panel` : `Show ${resultCount} ${mode === "crime" ? "reports" : "events"}`} aria-expanded={listOpen}>
         {listOpen ? <X size={18} aria-hidden="true" /> : <List size={17} aria-hidden="true" />}
         <span className="toolbar-list-count" aria-hidden="true">{resultCount}</span>
       </button>
